@@ -373,6 +373,7 @@ export interface BabushkaActor {
   walkPhase: number;
   voiceCooldown: number;
   subtitleTimer: number;
+  charmedTimer: number;
 }
 
 export function buildMemeBabushka(
@@ -443,7 +444,7 @@ export function buildMemeBabushka(
   rightArm.castShadow = true;
   group.add(rightArm);
 
-  // Articulated Head Group (so she turns & nods expressively!)
+  // Articulated Head Group
   const headGroup = new THREE.Group();
   headGroup.position.set(0, 1.76, 0);
   group.add(headGroup);
@@ -468,7 +469,7 @@ export function buildMemeBabushka(
 
   const faceMat = new THREE.MeshStandardMaterial({
     map: memeFaceTexture,
-    roughness: 0.5,
+    roughness: 0.55,
     metalness: 0.0,
   });
   const facePlane = new THREE.Mesh(new THREE.CircleGeometry(0.275, 24), faceMat);
@@ -529,6 +530,7 @@ export function buildMemeBabushka(
     walkPhase: Math.random() * 6,
     voiceCooldown: 1 + Math.random() * 3,
     subtitleTimer: 0,
+    charmedTimer: 0,
   };
 }
 
@@ -543,6 +545,8 @@ export interface PitbikerActor {
   heading: number;
   targetBabushkaIdx: number;
   shoutTimer: number;
+  stunTimer: number;
+  dropTimer: number;
 }
 
 export function buildFranticPitbiker(baltikaTex: THREE.Texture): PitbikerActor {
@@ -603,13 +607,12 @@ export function buildFranticPitbiker(baltikaTex: THREE.Texture): PitbikerActor {
   handlebar.position.set(0, 1.14, 0.54);
   group.add(handlebar);
 
-  // Glowing headlight (triggers subtle bloom on GPU!)
   const headlight = new THREE.Mesh(
     new THREE.CylinderGeometry(0.1, 0.1, 0.08, 12),
     new THREE.MeshStandardMaterial({
       color: 0xfef08a,
       emissive: 0xfacc15,
-      emissiveIntensity: 2.2,
+      emissiveIntensity: 1.8,
     })
   );
   headlight.rotation.x = Math.PI / 2;
@@ -709,6 +712,8 @@ export function buildFranticPitbiker(baltikaTex: THREE.Texture): PitbikerActor {
     heading: 0,
     targetBabushkaIdx: 0,
     shoutTimer: 2.5,
+    stunTimer: 0,
+    dropTimer: 4.5,
   };
 }
 
@@ -724,7 +729,7 @@ export interface BowlingPinActor {
 export interface BowlingAlleyRig {
   root: THREE.Group;
   benchBabushkas: THREE.Group[];
-  aimArrow: THREE.Mesh;
+  aimGroup: THREE.Group;
   bowlingBall: THREE.Group;
   pins: BowlingPinActor[];
   laneStartWorld: THREE.Vector3;
@@ -751,46 +756,47 @@ export function buildBowlingAlley(
   const railMat = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.7 });
 
   // 18-meter polished bowling promenade
-  const laneDeck = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.14, 18.5), polishedWoodMat);
+  const laneDeck = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.14, 19.0), polishedWoodMat);
   laneDeck.position.set(0, 0.07, 9);
   laneDeck.receiveShadow = true;
   root.add(laneDeck);
 
-  [-1.78, 1.78].forEach((rx) => {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.34, 18.5), railMat);
+  [-1.98, 1.98].forEach((rx) => {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.34, 19.0), railMat);
     rail.position.set(rx, 0.17, 9);
     rail.castShadow = true;
     root.add(rail);
   });
 
-  // Overhead Bowling Arch & Glowing Sign
-  const postGeo = new THREE.BoxGeometry(0.24, 3.4, 0.24);
-  [-1.85, 1.85].forEach((px) => {
+  // Overhead Bowling Arch positioned ABOVE eye level so view is 100% clear
+  const postGeo = new THREE.BoxGeometry(0.24, 4.2, 0.24);
+  [-2.05, 2.05].forEach((px) => {
     const p = new THREE.Mesh(postGeo, railMat);
-    p.position.set(px, 1.7, 0.5);
+    p.position.set(px, 2.1, 4.5);
     p.castShadow = true;
     root.add(p);
   });
 
   const signMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(4.2, 1.05),
+    new THREE.PlaneGeometry(4.4, 1.05),
     new THREE.MeshStandardMaterial({
       map: signTex,
-      emissive: 0xf59e0b,
-      emissiveIntensity: 0.22,
+      roughness: 0.4,
+      side: THREE.DoubleSide,
     })
   );
-  signMesh.position.set(0, 3.15, 0.65);
+  signMesh.position.set(0, 3.85, 4.5);
   root.add(signMesh);
 
-  // Wooden Park Bench at start of lane with 3 sitting Bowling Babushkas!
+  // Wooden Park Bench on the LEFT side of the foul line facing +X (never blocks camera!)
   const bench = new THREE.Group();
-  bench.position.set(0, 0, -1.6);
-  const benchSeat = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.14, 0.8), railMat);
+  bench.position.set(-2.95, 0, 1.4);
+  bench.rotation.y = Math.PI / 2;
+  const benchSeat = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.14, 0.8), railMat);
   benchSeat.position.y = 0.52;
   benchSeat.castShadow = true;
   bench.add(benchSeat);
-  const benchBack = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.65, 0.12), railMat);
+  const benchBack = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.65, 0.12), railMat);
   benchBack.position.set(0, 0.9, -0.35);
   bench.add(benchBack);
   root.add(bench);
@@ -801,7 +807,8 @@ export function buildBowlingAlley(
 
   for (let i = 0; i < 3; i++) {
     const sitter = new THREE.Group();
-    sitter.position.set(-0.95 + i * 0.95, 0.58, -1.55);
+    sitter.position.set(-2.95, 0.58, 0.45 + i * 0.95);
+    sitter.rotation.y = Math.PI / 2;
 
     const torso = new THREE.Mesh(
       new THREE.CylinderGeometry(0.22, 0.27, 0.55, 12),
@@ -834,7 +841,6 @@ export function buildBowlingAlley(
     face.position.set(0, 0.74, 0.22);
     sitter.add(face);
 
-    // Dangling legs sitting off bench
     const legGeo = new THREE.CylinderGeometry(0.08, 0.09, 0.42, 8);
     const bootMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.6 });
     [-0.1, 0.1].forEach((lx) => {
@@ -848,45 +854,51 @@ export function buildBowlingAlley(
     benchBabushkas.push(sitter);
   }
 
-  // Aiming Arrow along lane
-  const aimArrow = new THREE.Mesh(
-    new THREE.ConeGeometry(0.24, 1.4, 8),
-    new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      emissive: 0x0ea5e9,
-      emissiveIntensity: 1.6,
-    })
-  );
-  aimArrow.rotation.x = Math.PI / 2;
-  aimArrow.position.set(0, 0.24, 2.2);
-  aimArrow.visible = false;
-  root.add(aimArrow);
+  // Proper Y-pivoted Aiming Sightline Group pointing along +Z!
+  const aimGroup = new THREE.Group();
+  aimGroup.position.set(0, 0.2, 0.5);
+  aimGroup.visible = false;
 
-  // Rolling Curled Bowling Babushka Ball!
+  const sightMat = new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    emissive: 0x0ea5e9,
+    emissiveIntensity: 1.5,
+  });
+  const sightBar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 5.2), sightMat);
+  sightBar.position.set(0, 0, 2.8);
+  aimGroup.add(sightBar);
+
+  const sightCone = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.75, 12), sightMat);
+  sightCone.rotation.x = Math.PI / 2;
+  sightCone.position.set(0, 0.04, 5.65);
+  aimGroup.add(sightCone);
+  root.add(aimGroup);
+
+  // Rolling Curled Bowling Babushka Ball
   const bowlingBall = new THREE.Group();
   const ballBody = new THREE.Mesh(
-    new THREE.SphereGeometry(0.46, 18, 16),
+    new THREE.SphereGeometry(0.5, 18, 16),
     new THREE.MeshStandardMaterial({ color: 0x7c3aed, roughness: 0.6 })
   );
   ballBody.castShadow = true;
   bowlingBall.add(ballBody);
 
   const ballScarf = new THREE.Mesh(
-    new THREE.TorusGeometry(0.44, 0.08, 10, 20),
+    new THREE.TorusGeometry(0.48, 0.08, 10, 20),
     new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.7 })
   );
   bowlingBall.add(ballScarf);
 
   const ballFace = new THREE.Mesh(
-    new THREE.CircleGeometry(0.32, 20),
+    new THREE.CircleGeometry(0.35, 20),
     new THREE.MeshStandardMaterial({ map: babushkaTextures[0], roughness: 0.45 })
   );
-  ballFace.position.set(0, 0, 0.44);
+  ballFace.position.set(0, 0, 0.48);
   bowlingBall.add(ballFace);
   bowlingBall.visible = false;
   root.add(bowlingBall);
 
-  // 6 Giant Baltika 0 Bowling Pins in 1-2-3 triangle at far end of lane!
+  // 6 Giant Baltika 0 Bowling Pins
   const pins: BowlingPinActor[] = [];
   const pinCanMat = new THREE.MeshStandardMaterial({
     map: baltikaTex,
@@ -900,25 +912,25 @@ export function buildBowlingAlley(
   });
 
   const pinOffsets: [number, number][] = [
-    [0, 14.0],
-    [-0.55, 15.1],
-    [0.55, 15.1],
-    [-1.1, 16.2],
-    [0, 16.2],
-    [1.1, 16.2],
+    [0, 13.6],
+    [-0.65, 14.8],
+    [0.65, 14.8],
+    [-1.25, 16.0],
+    [0, 16.0],
+    [1.25, 16.0],
   ];
 
   pinOffsets.forEach(([px, pz]) => {
     const pinGroup = new THREE.Group();
     pinGroup.position.set(px, 0.14, pz);
 
-    const can = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.95, 16), pinCanMat);
-    can.position.y = 0.475;
+    const can = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 1.12, 16), pinCanMat);
+    can.position.y = 0.56;
     can.castShadow = true;
     pinGroup.add(can);
 
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.06, 16), pinCapMat);
-    top.position.y = 0.98;
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.07, 16), pinCapMat);
+    top.position.y = 1.15;
     pinGroup.add(top);
 
     root.add(pinGroup);
@@ -935,12 +947,89 @@ export function buildBowlingAlley(
   return {
     root,
     benchBabushkas,
-    aimArrow,
+    aimGroup,
     bowlingBall,
     pins,
     laneStartWorld: new THREE.Vector3(laneX, 0, laneStartZ),
     benchInteractPoint: new THREE.Vector3(laneX, 0, laneStartZ - 1.2),
   };
+}
+
+export type PickupKind = 'gazyava' | 'kiriki' | 'golden_pie';
+
+export function buildPickupMesh(
+  kind: PickupKind,
+  baltikaTex: THREE.Texture
+): THREE.Group {
+  const g = new THREE.Group();
+  if (kind === 'gazyava') {
+    const bottle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.16, 0.18, 0.56, 12),
+      new THREE.MeshPhysicalMaterial({
+        color: 0x10b981,
+        emissive: 0x059669,
+        emissiveIntensity: 0.45,
+        roughness: 0.15,
+        clearcoat: 1,
+      })
+    );
+    bottle.position.y = 0.55;
+    g.add(bottle);
+  } else if (kind === 'kiriki') {
+    const pack = new THREE.Mesh(
+      new THREE.BoxGeometry(0.38, 0.48, 0.14),
+      new THREE.MeshStandardMaterial({
+        map: baltikaTex,
+        color: 0xf59e0b,
+        emissive: 0xd97706,
+        emissiveIntensity: 0.35,
+        roughness: 0.4,
+      })
+    );
+    pack.position.y = 0.55;
+    g.add(pack);
+  } else {
+    const pie = new THREE.Mesh(
+      new THREE.SphereGeometry(0.24, 14, 12),
+      new THREE.MeshStandardMaterial({
+        color: 0xfbbf24,
+        emissive: 0xd97706,
+        emissiveIntensity: 0.55,
+        roughness: 0.3,
+      })
+    );
+    pie.scale.set(1.4, 0.7, 0.9);
+    pie.position.y = 0.55;
+    g.add(pie);
+  }
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.34, 0.44, 20),
+    new THREE.MeshBasicMaterial({
+      color: kind === 'gazyava' ? 0x34d399 : 0xfbbf24,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.75,
+    })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.06;
+  g.add(ring);
+  return g;
+}
+
+export function buildThrownPirozhokMesh(): THREE.Mesh {
+  const m = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16, 12, 10),
+    new THREE.MeshStandardMaterial({
+      color: 0xe08e26,
+      emissive: 0xb45309,
+      emissiveIntensity: 0.35,
+      roughness: 0.45,
+    })
+  );
+  m.scale.set(1.4, 0.72, 0.9);
+  return m;
 }
 
 export function buildBakeryKiosk(

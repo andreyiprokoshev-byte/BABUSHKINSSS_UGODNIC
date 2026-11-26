@@ -10,6 +10,12 @@ export type GameMode = 'SHIFT' | 'ENDLESS';
 
 export type FillingType = 'cabbage' | 'potato' | 'cherry' | 'meat';
 
+export type DistrictEventType =
+  | 'NONE'
+  | 'PITBIKE_TURBO'
+  | 'DOUBLE_DROOL'
+  | 'GOLDEN_BAKERY';
+
 export interface FillingInfo {
   id: FillingType;
   label: string;
@@ -65,11 +71,8 @@ export interface TargetPrompt {
 
 export interface BowlingHudState {
   aimAngle: number; // -1 to 1
-  power: number; // 0 to 1
   phase: 'AIMING' | 'ROLLING' | 'RESULT';
   pinsKnocked: number;
   totalPins: number;
   throwsLeft: number;
-  lastRewardGazyava: number;
-  lastRewardKiriki: number;
 }

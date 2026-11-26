@@ -3,6 +3,7 @@ import {
   BabushkaProfile,
   BabushkaRuntime,
   BowlingHudState,
+  DistrictEventType,
   FillingType,
   GameMode,
   GameState,
@@ -17,6 +18,7 @@ import {
   MEME_GALLERY_IMAGES,
 } from './data/gameData';
 import { Village3DView } from './components/Village3DView';
+import { PickupKind } from './three/villageModels';
 import { LipBrushMinigame } from './components/LipBrushMinigame';
 import { soundEngine } from './utils/sound';
 import {
@@ -36,7 +38,35 @@ import {
   ArrowLeft,
   ArrowRight,
   Target,
+  Send,
+  Zap,
 } from 'lucide-react';
+
+const EVENT_INFO: Record<
+  Exclude<DistrictEventType, 'NONE'>,
+  { title: string; desc: string; voice: string }
+> = {
+  PITBIKE_TURBO: {
+    title: 'ТУРБО-ПИТБАЙК!',
+    desc: 'Гонщик ускорился и роняет вдвое больше Газявы и Кириков!',
+    voice: 'Внимание! Питбайкер выжал турбо и раскидывает запасы!',
+  },
+  DOUBLE_DROOL: {
+    title: 'СЛЮННЫЙ ДОЖДЬ ×2',
+    desc: '+2 Газявы и +2 Кириков за каждое кормление бабушек!',
+    voice: 'У бабушек слюнный дождь! Награды увеличены!',
+  },
+  GOLDEN_BAKERY: {
+    title: 'ЗОЛОТАЯ ПЕКАРНЯ',
+    desc: 'Тётя Люба кладёт по 5 пирожков и дарит +2 Кириков!',
+    voice: 'Свежая партия у тёти Любы! Налетай в пекарню!',
+  },
+};
+const EVENT_ROTATION: Exclude<DistrictEventType, 'NONE'>[] = [
+  'DOUBLE_DROOL',
+  'PITBIKE_TURBO',
+  'GOLDEN_BAKERY',
+];
 
 const SHIFT_DURATION = 90;
 
@@ -86,20 +116,22 @@ export default function App() {
 
   const [bowlingHud, setBowlingHud] = useState<BowlingHudState>({
     aimAngle: 0,
-    power: 1,
     phase: 'AIMING',
     pinsKnocked: 0,
     totalPins: 6,
     throwsLeft: 3,
-    lastRewardGazyava: 0,
-    lastRewardKiriki: 0,
   });
 
   const [gazyavaBoostTimer, setGazyavaBoostTimer] = useState<number>(0);
   const [kirikiBuffTimer, setKirikiBuffTimer] = useState<number>(0);
+  const [combo, setCombo] = useState<number>(1);
+  const [districtEvent, setDistrictEvent] = useState<DistrictEventType>('NONE');
+  const eventTimerRef = useRef<number>(10);
+  const eventIdxRef = useRef<number>(0);
 
   const virtualInputRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
   const interactTriggerRef = useRef<(() => void) | null>(null);
+  const throwTriggerRef = useRef<(() => void) | null>(null);
   const bowlLaunchRef = useRef<(() => void) | null>(null);
   const toastTimeoutRef = useRef<number>(0);
 
@@ -129,6 +161,10 @@ export default function App() {
       setToastMessage(null);
       setGazyavaBoostTimer(0);
       setKirikiBuffTimer(0);
+      setCombo(1);
+      setDistrictEvent('NONE');
+      eventTimerRef.current = 10;
+      eventIdxRef.current = 0;
       setGameState('PLAYING');
     },
     [gameMode]
@@ -199,6 +235,20 @@ export default function App() {
       setGazyavaBoostTimer((t) => (t > 0 ? Math.max(0, t - dt) : 0));
       setKirikiBuffTimer((t) => (t > 0 ? Math.max(0, t - dt) : 0));
 
+      eventTimerRef.current -= dt;
+      if (eventTimerRef.current <= 0) {
+        if (districtEvent === 'NONE') {
+          const nextEv = EVENT_ROTATION[eventIdxRef.current % EVENT_ROTATION.length];
+          eventIdxRef.current += 1;
+          setDistrictEvent(nextEv);
+          eventTimerRef.current = 15;
+          soundEngine.speakRussian(EVENT_INFO[nextEv].voice, { pitch: 1.1, rate: 1.08 });
+        } else {
+          setDistrictEvent('NONE');
+          eventTimerRef.current = 9;
+        }
+      }
+
       setBabushkaStates((prev) => {
         let changed = false;
         const next: Record<string, BabushkaRuntime> = {};
@@ -217,19 +267,26 @@ export default function App() {
         return changed ? next : prev;
       });
     },
-    [gameMode]
+    [gameMode, districtEvent]
   );
 
   const handleInteractBakery = useCallback(() => {
     soundEngine.playBakeRestock();
+    const countPerFilling = districtEvent === 'GOLDEN_BAKERY' ? 5 : 3;
     setInventory({
-      cabbage: 3,
-      potato: 3,
-      cherry: 3,
-      meat: 3,
+      cabbage: countPerFilling,
+      potato: countPerFilling,
+      cherry: countPerFilling,
+      meat: countPerFilling,
     });
-    showToast('Поднос полон горячих пирожков!', 'amber');
-  }, [showToast]);
+    if (districtEvent === 'GOLDEN_BAKERY') {
+      setKiriki((k) => k + 2);
+      setTotalEarnedKiriki((k) => k + 2);
+      showToast('Золотая пекарня: полный поднос (по 5 шт.) и +2 Кириков!', 'amber');
+    } else {
+      showToast('Поднос полон горячих пирожков!', 'amber');
+    }
+  }, [districtEvent, showToast]);
 
   const handleInteractBabushka = useCallback((babushka: BabushkaProfile) => {
     soundEngine.playInteract();
@@ -282,20 +339,72 @@ export default function App() {
     [showToast]
   );
 
+  const handleConsumePirozhok = useCallback((): FillingType | null => {
+    let chosen: FillingType | null = null;
+    let bestCount = 0;
+    for (const f of FILLING_ORDER) {
+      if (inventory[f] > bestCount) {
+        bestCount = inventory[f];
+        chosen = f;
+      }
+    }
+    if (!chosen) return null;
+    const used = chosen;
+    setInventory((prev) => ({
+      ...prev,
+      [used]: Math.max(0, prev[used] - 1),
+    }));
+    return used;
+  }, [inventory]);
+
+  const handleCollectPickup = useCallback(
+    (kind: PickupKind) => {
+      if (kind === 'gazyava') {
+        setGazyava((g) => g + 2);
+        setTotalEarnedGazyava((g) => g + 2);
+        showToast('Подобрана Газява (+2)!', 'emerald');
+      } else if (kind === 'kiriki') {
+        setKiriki((k) => k + 2);
+        setTotalEarnedKiriki((k) => k + 2);
+        showToast('Подобраны Кирики (+2)!', 'amber');
+      } else {
+        setInventory((prev) => ({
+          ...prev,
+          meat: prev.meat + 1,
+          cherry: prev.cherry + 1,
+        }));
+        setGazyava((g) => g + 1);
+        setTotalEarnedGazyava((g) => g + 1);
+        showToast('Золотой пирожок у Жигулей: +2 пирожка и +1 Газява!', 'amber');
+      }
+    },
+    [showToast]
+  );
+
+  const handlePitbikerBump = useCallback(() => {
+    setCombo(1);
+  }, []);
+
   const handleMinigameComplete = useCallback(
     (result: RewardResult) => {
       if (!activeBabushka) return;
+
+      const eventBonus = districtEvent === 'DOUBLE_DROOL' ? 2 : 0;
+      const comboBonus = combo - 1;
+      const finalGazyava = result.gazyava + eventBonus + comboBonus;
+      const finalKiriki = result.kiriki + eventBonus + comboBonus;
 
       setInventory((prev) => ({
         ...prev,
         [result.fillingUsed]: Math.max(0, prev[result.fillingUsed] - 1),
       }));
 
-      setGazyava((g) => g + result.gazyava);
-      setKiriki((k) => k + result.kiriki);
-      setTotalEarnedGazyava((g) => g + result.gazyava);
-      setTotalEarnedKiriki((k) => k + result.kiriki);
+      setGazyava((g) => g + finalGazyava);
+      setKiriki((k) => k + finalKiriki);
+      setTotalEarnedGazyava((g) => g + finalGazyava);
+      setTotalEarnedKiriki((k) => k + finalKiriki);
       setBabushkasFed((c) => c + 1);
+      setCombo((c) => Math.min(3, c + 1));
 
       const nextCraving: FillingType =
         FILLING_ORDER[Math.floor(Math.random() * FILLING_ORDER.length)];
@@ -310,14 +419,14 @@ export default function App() {
       }));
 
       showToast(
-        `${activeBabushka.name}: +${result.gazyava} Газява, +${result.kiriki} Кирики!`,
+        `${activeBabushka.name} (×${combo}): +${finalGazyava} Газява, +${finalKiriki} Кирики!`,
         'emerald'
       );
 
       setActiveBabushka(null);
       setGameState('PLAYING');
     },
-    [activeBabushka, showToast]
+    [activeBabushka, combo, districtEvent, showToast]
   );
 
   const handleMinigameCancel = useCallback(() => {
@@ -381,6 +490,12 @@ export default function App() {
                   {kiriki}
                 </span>
               </div>
+
+              {combo > 1 && (
+                <div className="hidden md:flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-xs font-mono-tabular font-bold text-amber-300 whitespace-nowrap">
+                  Комбо ×{combo}
+                </div>
+              )}
 
               <div className="hidden sm:flex items-center gap-1.5 whitespace-nowrap">
                 <span className="text-stone-400 text-xs">Время:</span>
@@ -470,13 +585,13 @@ export default function App() {
 
                   <div className="bg-[#F2ECE1] rounded-xl p-3.5">
                     <div className="font-mono-tabular text-xs font-bold text-[#0F766E] mb-1">
-                      КЛАВИША E
+                      КЛАВИША E И Q / ПКМ
                     </div>
                     <div className="text-sm font-semibold text-[#1E2229]">
-                      Водить пирожком
+                      Угощай и метай
                     </div>
                     <p className="text-xs text-[#645C52] mt-1">
-                      Разные мемные бабушки с озвучкой фраз дарят газяву и кирики.
+                      На <strong>E</strong> води по губам, а на <strong>Q / ПКМ</strong> оглуши питбайкера и выбей лут!
                     </p>
                   </div>
 
@@ -561,19 +676,37 @@ export default function App() {
               babushkaStates={babushkaStates}
               inventory={inventory}
               gazyavaBoostActive={gazyavaBoostTimer > 0}
+              activeEvent={districtEvent}
               onInteractBabushka={handleInteractBabushka}
               onInteractBakery={handleInteractBakery}
               onEnterBowling={handleEnterBowling}
               onExitBowling={handleExitBowling}
               onBowlingResult={handleBowlingResult}
               onBowlingHudUpdate={setBowlingHud}
+              onConsumePirozhok={handleConsumePirozhok}
+              onCollectPickup={handleCollectPickup}
+              onPitbikerBump={handlePitbikerBump}
               onStepTimer={handleStepTimer}
               onTargetChange={setTargetPrompt}
               onPitbikerAlert={handlePitbikerAlert}
               virtualInputRef={virtualInputRef}
               interactTriggerRef={interactTriggerRef}
+              throwTriggerRef={throwTriggerRef}
               bowlLaunchRef={bowlLaunchRef}
             />
+
+            {/* Dynamic District Event Banner */}
+            {districtEvent !== 'NONE' && gameState === 'PLAYING' && (
+              <div className="pointer-events-none absolute top-3 right-3 z-20 max-w-xs bg-[#1B1F26]/95 border border-amber-500/70 rounded-xl px-3.5 py-2 shadow-xl">
+                <div className="flex items-center gap-1.5 text-xs font-display font-bold text-amber-300">
+                  <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  {EVENT_INFO[districtEvent].title}
+                </div>
+                <p className="text-[11px] text-stone-300 mt-0.5 leading-snug">
+                  {EVENT_INFO[districtEvent].desc}
+                </p>
+              </div>
+            )}
 
             {/* Floating Event Toast */}
             {toastMessage && (gameState === 'PLAYING' || gameState === 'BOWLING') && (
@@ -701,6 +834,16 @@ export default function App() {
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
+                      disabled={totalPirozhki <= 0 || gameState !== 'PLAYING'}
+                      onClick={() => throwTriggerRef.current?.()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-950 hover:bg-sky-900 border border-sky-700/60 text-xs font-semibold text-sky-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      <Send className="w-3.5 h-3.5 text-sky-400" />
+                      [Q / ПКМ] Бросить (-1)
+                    </button>
+
+                    <button
+                      type="button"
                       disabled={gazyava <= 0 || gameState !== 'PLAYING'}
                       onClick={handleUseGazyavaBoost}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950 hover:bg-emerald-900 border border-emerald-700/60 text-xs font-semibold text-emerald-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
@@ -708,7 +851,7 @@ export default function App() {
                       <Flame className="w-3.5 h-3.5 text-emerald-400" />
                       {gazyavaBoostTimer > 0
                         ? `Турбо-бег: ${Math.ceil(gazyavaBoostTimer)}с`
-                        : '[1] Выпить Газяву (-1)'}
+                        : '[1] Газява (-1)'}
                     </button>
 
                     <button
@@ -719,8 +862,8 @@ export default function App() {
                     >
                       <Cookie className="w-3.5 h-3.5 text-amber-400" />
                       {kirikiBuffTimer > 0
-                        ? `Бонус к награде: ${Math.ceil(kirikiBuffTimer)}с`
-                        : '[2] Хрустнуть Кириками (-1)'}
+                        ? `Бонус: ${Math.ceil(kirikiBuffTimer)}с`
+                        : '[2] Кирики (-1)'}
                     </button>
                   </div>
                 </div>
@@ -775,13 +918,22 @@ export default function App() {
                   </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => interactTriggerRef.current?.()}
-                  className="pointer-events-auto h-12 px-4 rounded-xl bg-emerald-600 active:bg-emerald-500 text-white font-display font-bold text-sm shadow-lg whitespace-nowrap"
-                >
-                  Действие (E)
-                </button>
+                <div className="pointer-events-auto flex flex-col gap-2 items-end">
+                  <button
+                    type="button"
+                    onClick={() => throwTriggerRef.current?.()}
+                    className="h-10 px-3.5 rounded-xl bg-sky-600 active:bg-sky-500 text-white font-display font-bold text-xs shadow-lg whitespace-nowrap"
+                  >
+                    Бросить (Q)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => interactTriggerRef.current?.()}
+                    className="h-12 px-4 rounded-xl bg-emerald-600 active:bg-emerald-500 text-white font-display font-bold text-sm shadow-lg whitespace-nowrap"
+                  >
+                    Действие (E)
+                  </button>
+                </div>
               </div>
             )}
           </div>

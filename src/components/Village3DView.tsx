@@ -4,10 +4,13 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
   BabushkaProfile,
   BabushkaRuntime,
   BowlingHudState,
+  DistrictEventType,
+  FillingType,
   PirozhokInventory,
   TargetPrompt,
 } from '../types/game';
@@ -21,6 +24,7 @@ import {
 import {
   BabushkaActor,
   BowlingAlleyRig,
+  PickupKind,
   PitbikerActor,
   buildBakeryKiosk,
   buildBowlingAlley,
@@ -28,6 +32,8 @@ import {
   buildFranticPitbiker,
   buildMemeBabushka,
   buildOpenWorldDistrict,
+  buildPickupMesh,
+  buildThrownPirozhokMesh,
   createAsphaltTextures,
   createBaltikaCanTexture,
   createGoldenSkyDome,
@@ -44,25 +50,64 @@ interface Village3DViewProps {
   babushkaStates: Record<string, BabushkaRuntime>;
   inventory: PirozhokInventory;
   gazyavaBoostActive: boolean;
+  activeEvent: DistrictEventType;
   onInteractBabushka: (babushka: BabushkaProfile) => void;
   onInteractBakery: () => void;
   onEnterBowling: () => void;
   onExitBowling: () => void;
   onBowlingResult: (pinsKnocked: number, isStrike: boolean) => void;
   onBowlingHudUpdate: (hud: BowlingHudState) => void;
+  onConsumePirozhok: () => FillingType | null;
+  onCollectPickup: (kind: PickupKind) => void;
+  onPitbikerBump: () => void;
   onStepTimer: (dt: number) => void;
   onTargetChange: (target: TargetPrompt | null) => void;
   onPitbikerAlert: (msg: string) => void;
   virtualInputRef: React.MutableRefObject<{ dx: number; dy: number }>;
   interactTriggerRef: React.MutableRefObject<(() => void) | null>;
+  throwTriggerRef: React.MutableRefObject<(() => void) | null>;
   bowlLaunchRef: React.MutableRefObject<(() => void) | null>;
+}
+
+interface ThrownPirozhok {
+  mesh: THREE.Mesh;
+  vel: THREE.Vector3;
+  life: number;
+}
+
+interface WorldPickup {
+  kind: PickupKind;
+  mesh: THREE.Group;
+  pos: THREE.Vector3;
+  phase: number;
 }
 
 const _vecA = new THREE.Vector3();
 const _vecB = new THREE.Vector3();
 const _vecC = new THREE.Vector3();
+const _forward = new THREE.Vector3();
 
 const BAKERY_POS = new THREE.Vector3(0, 0, -21.2);
+const GOLDEN_PIE_SPAWNS: [number, number][] = [
+  [7.0, -29.0],
+  [-7.0, 31.0],
+  [32.0, 6.5],
+  [-34.0, -7.8],
+];
+
+function disposeObjectResources(obj: THREE.Object3D): void {
+  obj.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const m = child as THREE.Mesh;
+      m.geometry.dispose();
+      if (Array.isArray(m.material)) {
+        m.material.forEach((mat) => mat.dispose());
+      } else {
+        m.material.dispose();
+      }
+    }
+  });
+}
 
 export const Village3DView: React.FC<Village3DViewProps> = ({
   isPlaying,
@@ -70,17 +115,22 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
   babushkaStates,
   inventory,
   gazyavaBoostActive,
+  activeEvent,
   onInteractBabushka,
   onInteractBakery,
   onEnterBowling,
   onExitBowling,
   onBowlingResult,
   onBowlingHudUpdate,
+  onConsumePirozhok,
+  onCollectPickup,
+  onPitbikerBump,
   onStepTimer,
   onTargetChange,
   onPitbikerAlert,
   virtualInputRef,
   interactTriggerRef,
+  throwTriggerRef,
   bowlLaunchRef,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -93,12 +143,16 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     babushkaStates,
     inventory,
     gazyavaBoostActive,
+    activeEvent,
     onInteractBabushka,
     onInteractBakery,
     onEnterBowling,
     onExitBowling,
     onBowlingResult,
     onBowlingHudUpdate,
+    onConsumePirozhok,
+    onCollectPickup,
+    onPitbikerBump,
     onStepTimer,
     onTargetChange,
     onPitbikerAlert,
@@ -109,12 +163,16 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     babushkaStates,
     inventory,
     gazyavaBoostActive,
+    activeEvent,
     onInteractBabushka,
     onInteractBakery,
     onEnterBowling,
     onExitBowling,
     onBowlingResult,
     onBowlingHudUpdate,
+    onConsumePirozhok,
+    onCollectPickup,
+    onPitbikerBump,
     onStepTimer,
     onTargetChange,
     onPitbikerAlert,
@@ -126,11 +184,14 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
   const playerPosRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, -14));
   const lastTargetKeyRef = useRef<string>('');
   const currentTargetRef = useRef<TargetPrompt | null>(null);
+  const pendingThrowRef = useRef<boolean>(false);
+  const throwCooldownRef = useRef<number>(0);
+  const bowlingEnterCooldownRef = useRef<number>(0);
 
-  // Bowling runtime ref
+  // Bowling runtime state
   const bowlingStateRef = useRef<{
     phase: 'AIMING' | 'ROLLING' | 'RESULT';
-    aimAngle: number; // -0.35 to 0.35 rad
+    aimAngle: number; // +0.26 = LEFT on screen (+X), -0.26 = RIGHT on screen (-X)
     ballPos: THREE.Vector3;
     ballVel: THREE.Vector3;
     resultTimer: number;
@@ -140,7 +201,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
   }>({
     phase: 'AIMING',
     aimAngle: 0,
-    ballPos: new THREE.Vector3(0, 0.46, 0.5),
+    ballPos: new THREE.Vector3(0, 0.48, 0.5),
     ballVel: new THREE.Vector3(),
     resultTimer: 0,
     throwsLeft: 3,
@@ -153,22 +214,38 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
 
   const launchBowlingBabushka = () => {
     const bs = bowlingStateRef.current;
-    if (!propsRef.current.isBowling || bs.phase !== 'AIMING') return;
+    if (
+      !propsRef.current.isBowling ||
+      bs.phase !== 'AIMING' ||
+      bowlingEnterCooldownRef.current > 0
+    ) {
+      return;
+    }
 
     bs.phase = 'ROLLING';
-    bs.ballPos.set(0, 0.46, 0.5);
+    bs.ballPos.set(0, 0.48, 0.5);
     const launchSpeed = 16.5;
     bs.ballVel.set(Math.sin(bs.aimAngle) * launchSpeed, 0, Math.cos(bs.aimAngle) * launchSpeed);
     bs.scoredThisRoll = false;
 
     soundEngine.playBowlingRoll();
-    soundEngine.speakRussian('Уииии! Поехали с ветерком!', {
+    soundEngine.speakRussian('Уииии! Держитесь, банки!', {
       pitch: 1.42,
       rate: 1.15,
       priority: true,
     });
   };
   bowlLaunchRef.current = launchBowlingBabushka;
+
+  const requestThrowPirozhok = () => {
+    if (!propsRef.current.isPlaying || throwCooldownRef.current > 0) return;
+    if (getTotalPirozhki(propsRef.current.inventory) <= 0) {
+      propsRef.current.onPitbikerAlert('Пирожки кончились! Беги в пекарню пополнить поднос!');
+      return;
+    }
+    pendingThrowRef.current = true;
+  };
+  throwTriggerRef.current = requestThrowPirozhok;
 
   const triggerInteraction = () => {
     if (!propsRef.current.isPlaying) return;
@@ -181,6 +258,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       if (document.pointerLockElement) {
         document.exitPointerLock();
       }
+      bowlingEnterCooldownRef.current = 0.35;
       propsRef.current.onEnterBowling();
     } else if (target.kind === 'babushka' && target.babushka) {
       if (document.pointerLockElement) {
@@ -198,8 +276,11 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
         document.exitPointerLock();
       }
     }
-    if (isBowling && document.pointerLockElement) {
-      document.exitPointerLock();
+    if (isBowling) {
+      bowlingEnterCooldownRef.current = 0.35;
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
     }
   }, [isPlaying, isBowling]);
 
@@ -215,7 +296,9 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
         }
         if (code === 'Space' || code === 'KeyE' || code === 'Enter') {
           e.preventDefault();
-          launchBowlingBabushka();
+          if (!e.repeat) {
+            launchBowlingBabushka();
+          }
           return;
         }
         keysRef.current.add(code);
@@ -240,6 +323,11 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
         e.preventDefault();
         if (!e.repeat) {
           triggerInteraction();
+        }
+      } else if (code === 'KeyQ') {
+        e.preventDefault();
+        if (!e.repeat) {
+          requestThrowPirozhok();
         }
       }
     };
@@ -282,7 +370,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.12;
+    renderer.toneMappingExposure = 1.0;
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -306,23 +394,24 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     renderer.domElement.addEventListener('webglcontextrestored', onContextRestored);
 
     const scene = new THREE.Scene();
-    const fogColor = 0xf4cfa8;
-    scene.fog = new THREE.FogExp2(fogColor, 0.0068);
+    const fogColor = 0xdcb995;
+    scene.fog = new THREE.FogExp2(fogColor, 0.0045);
     scene.add(createGoldenSkyDome());
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environmentIntensity = 0.5;
     pmremGenerator.dispose();
 
     const camera = new THREE.PerspectiveCamera(74, width / height, 0.1, 240);
     camera.rotation.order = 'YXZ';
     scene.add(camera);
 
-    // Golden-Hour GTA-inspired 3-point atmospheric lighting
-    const hemiLight = new THREE.HemisphereLight(0x93c5fd, 0x3b4d2b, 0.78);
+    // Balanced Golden-Hour 3-point lighting
+    const hemiLight = new THREE.HemisphereLight(0x93c5fd, 0x3b4d2b, 0.55);
     scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffdca8, 2.05);
+    const sunLight = new THREE.DirectionalLight(0xffdca8, 1.35);
     sunLight.position.set(42, 28, 52);
     sunLight.castShadow = !isSoftwareGl;
     sunLight.shadow.mapSize.width = 2048;
@@ -337,22 +426,23 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     sunLight.shadow.normalBias = 0.02;
     scene.add(sunLight);
 
-    const rimLight = new THREE.DirectionalLight(0xa5b4fc, 0.55);
+    const rimLight = new THREE.DirectionalLight(0xa5b4fc, 0.35);
     rimLight.position.set(-34, 18, -36);
     scene.add(rimLight);
 
-    // Post-Processing Bloom Composer (GPU only; software WebGL renders directly)
+    // Post-Processing Composer with OutputPass for proper ACESFilmicToneMapping + sRGB output
     let composer: EffectComposer | null = null;
     if (!isSoftwareGl) {
       composer = new EffectComposer(renderer);
       composer.addPass(new RenderPass(scene, camera));
       const bloomPass = new UnrealBloomPass(
         new THREE.Vector2(width, height),
-        0.34,
-        0.45,
-        0.86
+        0.2,
+        0.35,
+        0.94
       );
       composer.addPass(bloomPass);
+      composer.addPass(new OutputPass());
     }
 
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
@@ -414,21 +504,56 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     const viewModel = buildFirstPersonPirozhokViewModel();
     camera.add(viewModel.root);
 
+    // Street pickups & thrown pirozhki
+    const worldPickups: WorldPickup[] = [];
+    const thrownPirozhki: ThrownPirozhok[] = [];
+
+    const spawnPickup = (kind: PickupKind, x: number, z: number) => {
+      if (worldPickups.length >= 24) return;
+      const mesh = buildPickupMesh(kind, baltikaTex);
+      const clampedX = THREE.MathUtils.clamp(x, -ARENA_HALF_SIZE + 2, ARENA_HALF_SIZE - 2);
+      const clampedZ = THREE.MathUtils.clamp(z, -ARENA_HALF_SIZE + 2, ARENA_HALF_SIZE - 2);
+      mesh.position.set(clampedX, 0, clampedZ);
+      scene.add(mesh);
+      worldPickups.push({
+        kind,
+        mesh,
+        pos: new THREE.Vector3(clampedX, 0, clampedZ),
+        phase: Math.random() * Math.PI * 2,
+      });
+    };
+
+    GOLDEN_PIE_SPAWNS.forEach(([gx, gz]) => {
+      spawnPickup('golden_pie', gx, gz);
+    });
+
     if (!isSoftwareGl) {
       renderer.compile(scene, camera);
     }
 
-    // Pointer lock & drag look controls
+    // Pointer lock, right-click throw & drag look controls
     let isDragging = false;
     let lastDragX = 0;
     let lastDragY = 0;
 
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       if (propsRef.current.isBowling) {
-        launchBowlingBabushka();
+        if (e.button === 0) {
+          launchBowlingBabushka();
+        }
         return;
       }
       if (!propsRef.current.isPlaying) return;
+
+      if (e.button === 2) {
+        requestThrowPirozhok();
+        return;
+      }
+
       isDragging = true;
       lastDragX = e.clientX;
       lastDragY = e.clientY;
@@ -449,7 +574,8 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       if (propsRef.current.isBowling && bowlingStateRef.current.phase === 'AIMING') {
         const rect = renderer.domElement.getBoundingClientRect();
         const normX = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
-        bowlingStateRef.current.aimAngle = THREE.MathUtils.clamp(-normX * 0.28, -0.28, 0.28);
+        // Looking along +Z means LEFT is +X (+aimAngle) and RIGHT is -X (-aimAngle)
+        bowlingStateRef.current.aimAngle = THREE.MathUtils.clamp(-normX * 0.26, -0.26, 0.26);
         return;
       }
 
@@ -480,6 +606,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       setPointerLocked(document.pointerLockElement === renderer.domElement);
     };
 
+    renderer.domElement.addEventListener('contextmenu', onContextMenu);
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('mousemove', onMouseMove);
@@ -503,6 +630,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     let badgeSyncTimer = 0;
     let pitBumpCooldown = 0;
     let bowlingHudTimer = 0;
+    let goldenRespawnTimer = 8;
 
     function afterDraw(cb: () => void) {
       const gl = renderer.getContext() as WebGL2RenderingContext;
@@ -533,64 +661,71 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
 
     const updateBowling = (dt: number, elapsedSec: number) => {
       const bs = bowlingStateRef.current;
+      bowlingEnterCooldownRef.current = Math.max(0, bowlingEnterCooldownRef.current - dt);
 
-      // Smoothly position camera overlooking the bowling bench & alley
+      // Clear unobstructed camera behind foul line overlooking the alley (+Z)
       const targetCamX = bowlingAlley.laneStartWorld.x;
       const targetCamY = 2.35;
-      const targetCamZ = bowlingAlley.laneStartWorld.z - 3.9;
+      const targetCamZ = bowlingAlley.laneStartWorld.z - 2.2;
       camera.position.x = THREE.MathUtils.damp(camera.position.x, targetCamX, 8, dt);
       camera.position.y = THREE.MathUtils.damp(camera.position.y, targetCamY, 8, dt);
       camera.position.z = THREE.MathUtils.damp(camera.position.z, targetCamZ, 8, dt);
-      camera.rotation.y = THREE.MathUtils.damp(camera.rotation.y, Math.PI, 8, dt);
+
+      let yawDiff = Math.PI - camera.rotation.y;
+      while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
+      while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
+      camera.rotation.y += yawDiff * Math.min(1, 8 * dt);
       camera.rotation.x = THREE.MathUtils.damp(camera.rotation.x, -0.14, 8, dt);
+      camera.rotation.z = THREE.MathUtils.damp(camera.rotation.z, 0, 8, dt);
+      if (Math.abs(camera.fov - 68) > 0.1) {
+        camera.fov = THREE.MathUtils.damp(camera.fov, 68, 8, dt);
+        camera.updateProjectionMatrix();
+      }
       viewModel.root.visible = false;
 
-      // Animate bench babushkas kicking legs excitedly
+      // Animate sitting bench babushkas kicking legs excitedly
       bowlingAlley.benchBabushkas.forEach((b, idx) => {
         b.position.y = 0.58 + Math.abs(Math.sin(elapsedSec * 5 + idx)) * 0.05;
       });
 
       if (bs.phase === 'AIMING') {
+        // Looking along +Z: Left = +X (+aimAngle), Right = -X (-aimAngle)
         if (keysRef.current.has('KeyA') || keysRef.current.has('ArrowLeft')) {
-          bs.aimAngle = Math.min(0.28, bs.aimAngle + 0.55 * dt);
+          bs.aimAngle = Math.min(0.26, bs.aimAngle + 0.55 * dt);
         }
         if (keysRef.current.has('KeyD') || keysRef.current.has('ArrowRight')) {
-          bs.aimAngle = Math.max(-0.28, bs.aimAngle - 0.55 * dt);
+          bs.aimAngle = Math.max(-0.26, bs.aimAngle - 0.55 * dt);
         }
 
-        bowlingAlley.aimArrow.visible = true;
-        bowlingAlley.aimArrow.position.set(
-          Math.sin(bs.aimAngle) * 1.4,
-          0.26,
-          1.8
-        );
-        bowlingAlley.aimArrow.rotation.z = -bs.aimAngle;
+        bowlingAlley.aimGroup.visible = true;
+        bowlingAlley.aimGroup.rotation.y = bs.aimAngle;
         bowlingAlley.bowlingBall.visible = true;
-        bowlingAlley.bowlingBall.position.set(0, 0.46, 0.5);
-        bowlingAlley.bowlingBall.rotation.set(0, 0, 0);
+        bowlingAlley.bowlingBall.position.set(0, 0.48, 0.5);
+        bowlingAlley.bowlingBall.rotation.set(0, bs.aimAngle, 0);
       } else if (bs.phase === 'ROLLING') {
-        bowlingAlley.aimArrow.visible = false;
+        bowlingAlley.aimGroup.visible = false;
         bs.ballPos.x += bs.ballVel.x * dt;
         bs.ballPos.z += bs.ballVel.z * dt;
-        // Gutter guard bounce
-        if (Math.abs(bs.ballPos.x) > 1.35) {
-          bs.ballVel.x *= -0.4;
-          bs.ballPos.x = THREE.MathUtils.clamp(bs.ballPos.x, -1.35, 1.35);
+
+        // Gentle bumper rails
+        if (Math.abs(bs.ballPos.x) > 1.45) {
+          bs.ballVel.x *= -0.45;
+          bs.ballPos.x = THREE.MathUtils.clamp(bs.ballPos.x, -1.45, 1.45);
         }
         bowlingAlley.bowlingBall.position.copy(bs.ballPos);
-        bowlingAlley.bowlingBall.rotation.x += bs.ballVel.z * dt * 2.2;
+        bowlingAlley.bowlingBall.rotation.x += bs.ballVel.z * dt * 2.0;
 
-        // Check collisions with pins
+        // Ball-to-pin collisions
         bowlingAlley.pins.forEach((pin) => {
           const dist = Math.hypot(bs.ballPos.x - pin.pos.x, bs.ballPos.z - pin.pos.z);
-          if (!pin.knocked && dist < 0.72) {
+          if (!pin.knocked && dist < 0.78) {
             pin.knocked = true;
             bs.pinsKnockedThisTurn += 1;
             soundEngine.playPinHit();
             const dx = pin.pos.x - bs.ballPos.x;
             const dz = pin.pos.z - bs.ballPos.z;
             const len = Math.max(0.1, Math.hypot(dx, dz));
-            pin.vel.set((dx / len) * 6 + bs.ballVel.x * 0.35, 4.2, (dz / len) * 6 + 3);
+            pin.vel.set((dx / len) * 5.8 + bs.ballVel.x * 0.35, 4.4, (dz / len) * 6.0 + 3.2);
             pin.rotVel.set(4 + Math.random() * 6, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
           }
         });
@@ -602,7 +737,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
           for (let j = 0; j < bowlingAlley.pins.length; j++) {
             if (i === j) continue;
             const b = bowlingAlley.pins[j];
-            if (!b.knocked && a.pos.distanceTo(b.pos) < 0.68) {
+            if (!b.knocked && a.pos.distanceTo(b.pos) < 0.78) {
               b.knocked = true;
               bs.pinsKnockedThisTurn += 1;
               soundEngine.playPinHit();
@@ -612,9 +747,9 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
           }
         }
 
-        if (bs.ballPos.z > 18.2) {
+        if (bs.ballPos.z > 17.8) {
           bs.phase = 'RESULT';
-          bs.resultTimer = 1.9;
+          bs.resultTimer = 1.7;
           if (!bs.scoredThisRoll) {
             bs.scoredThisRoll = true;
             const knockedTotal = bowlingAlley.pins.filter((p) => p.knocked).length;
@@ -644,8 +779,8 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
           pin.pos.x += pin.vel.x * dt;
           pin.pos.y += pin.vel.y * dt;
           pin.pos.z += pin.vel.z * dt;
-          if (pin.pos.y < 0.25) {
-            pin.pos.y = 0.25;
+          if (pin.pos.y < 0.18) {
+            pin.pos.y = 0.18;
             pin.vel.y = 0;
             pin.vel.x *= 0.9;
             pin.vel.z *= 0.9;
@@ -663,14 +798,11 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
         bowlingHudTimer = 0.08;
         const knockedCount = bowlingAlley.pins.filter((p) => p.knocked).length;
         propsRef.current.onBowlingHudUpdate({
-          aimAngle: bs.aimAngle / 0.28,
-          power: 1,
+          aimAngle: bs.aimAngle / 0.26,
           phase: bs.phase,
           pinsKnocked: knockedCount,
           totalPins: bowlingAlley.pins.length,
           throwsLeft: bs.throwsLeft,
-          lastRewardGazyava: knockedCount * 2,
-          lastRewardKiriki: knockedCount * 2,
         });
       }
     };
@@ -691,6 +823,10 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
         babushkaStates: bStates,
         inventory: inv,
         gazyavaBoostActive: boost,
+        activeEvent: eventType,
+        onConsumePirozhok: consumePie,
+        onCollectPickup: collectPickup,
+        onPitbikerBump: pitbikerBump,
         onStepTimer: stepTimer,
         onTargetChange: notifyTarget,
         onPitbikerAlert: notifyAlert,
@@ -700,6 +836,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
 
       stepTimer(dt);
       pitBumpCooldown = Math.max(0, pitBumpCooldown - dt);
+      throwCooldownRef.current = Math.max(0, throwCooldownRef.current - dt);
 
       // 1. First-person WASD movement
       let fwd = -virtualInputRef.current.dy;
@@ -713,7 +850,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       if (keysRef.current.has('ArrowRight')) cameraYawRef.current -= 2.2 * dt;
 
       const yaw = cameraYawRef.current;
-      const speed = boost ? 12.8 : 8.4;
+      const speed = boost ? 12.8 : 8.6;
       const isMoving = Math.abs(fwd) > 0.01 || Math.abs(strafe) > 0.01;
 
       if (isMoving) {
@@ -732,7 +869,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
           ARENA_HALF_SIZE
         );
 
-        // Bakery counter & building blocks collision
+        // Simple collision around bakery counter
         if (Math.abs(nextX) > 3.5 || nextZ > -22.0) {
           playerPosRef.current.x = nextX;
           playerPosRef.current.z = nextZ;
@@ -750,6 +887,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       camera.position.set(playerPosRef.current.x, 1.72 + bobY, playerPosRef.current.z);
       camera.rotation.y = cameraYawRef.current;
       camera.rotation.x = cameraPitchRef.current;
+      camera.rotation.z = 0;
 
       const totalPies = getTotalPirozhki(inv);
       viewModel.root.visible = totalPies > 0;
@@ -759,58 +897,192 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
         viewModel.pirozhokMesh.rotation.z = Math.sin(elapsedSec * 3) * 0.06;
       }
 
-      // 2. Frantic Village Pitbiker with Baltika 0 chasing babushkas
-      const chasedActor = babushkaActors[pitbiker.targetBabushkaIdx % babushkaActors.length];
-      _vecA.subVectors(chasedActor.pos, pitbiker.pos);
-      _vecA.y = 0;
-      const distToChased = _vecA.length();
-
-      if (distToChased < 2.8) {
-        pitbiker.targetBabushkaIdx =
-          (pitbiker.targetBabushkaIdx + 1 + Math.floor(Math.random() * 2)) %
-          babushkaActors.length;
+      // 1b. Handle Thrown Pirozhok (Q / Right-Click)
+      if (pendingThrowRef.current) {
+        pendingThrowRef.current = false;
+        const used = consumePie();
+        if (used) {
+          throwCooldownRef.current = 0.4;
+          camera.getWorldDirection(_forward);
+          const mesh = buildThrownPirozhokMesh();
+          mesh.position
+            .copy(camera.position)
+            .addScaledVector(_forward, 0.7)
+            .add(new THREE.Vector3(0, -0.14, 0));
+          scene.add(mesh);
+          thrownPirozhki.push({
+            mesh,
+            vel: _forward.clone().multiplyScalar(24).add(new THREE.Vector3(0, 2.2, 0)),
+            life: 2.2,
+          });
+          soundEngine.playThrowPirozhok();
+        }
       }
 
-      if (distToChased > 0.2) {
-        const desiredHeading = Math.atan2(_vecA.x, _vecA.z);
-        let diff = desiredHeading - pitbiker.heading;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        pitbiker.heading += THREE.MathUtils.clamp(diff, -3.4 * dt, 3.4 * dt);
-        pitbiker.group.rotation.z = THREE.MathUtils.damp(
-          pitbiker.group.rotation.z,
-          THREE.MathUtils.clamp(-diff * 0.38, -0.38, 0.38),
-          8,
-          dt
+      for (let i = thrownPirozhki.length - 1; i >= 0; i--) {
+        const proj = thrownPirozhki[i];
+        proj.life -= dt;
+        proj.vel.y -= 7.2 * dt;
+        proj.mesh.position.addScaledVector(proj.vel, dt);
+        proj.mesh.rotation.x += 12 * dt;
+        proj.mesh.rotation.y += 8 * dt;
+
+        let consumed = false;
+
+        // Check hit on Pitbiker
+        const bikeHitCenterY = pitbiker.pos.y + 1.05;
+        const distToBike = Math.hypot(
+          proj.mesh.position.x - pitbiker.pos.x,
+          proj.mesh.position.y - bikeHitCenterY,
+          proj.mesh.position.z - pitbiker.pos.z
         );
+        if (distToBike < 1.8 && pitbiker.stunTimer <= 0.2) {
+          consumed = true;
+          pitbiker.stunTimer = 3.8;
+          pitbiker.shoutUpdate('ПИТБАЙКЕР ОГЛУШЁН!', 'АЙ! ПИРОЖКОМ В КАСКУ!', '#10B981');
+          soundEngine.playHitPitbiker();
+          soundEngine.speakRussian('Ай, горячим пирожком прямо в шлем!', {
+            pitch: 0.75,
+            rate: 1.15,
+            priority: true,
+          });
+          notifyAlert('Прямое попадание! Питбайкер выронил Газяву и Кирики!');
+          spawnPickup('gazyava', pitbiker.pos.x + 1.4, pitbiker.pos.z + 0.8);
+          spawnPickup('gazyava', pitbiker.pos.x - 1.4, pitbiker.pos.z - 0.6);
+          spawnPickup('kiriki', pitbiker.pos.x + 0.6, pitbiker.pos.z - 1.5);
+          spawnPickup('kiriki', pitbiker.pos.x - 0.8, pitbiker.pos.z + 1.4);
+        }
+
+        // Check hit on Babushkas (charms them to pause & wave!)
+        if (!consumed) {
+          for (const actor of babushkaActors) {
+            const distToB = Math.hypot(
+              proj.mesh.position.x - actor.pos.x,
+              proj.mesh.position.y - 1.25,
+              proj.mesh.position.z - actor.pos.z
+            );
+            if (distToB < 1.35) {
+              consumed = true;
+              actor.charmedTimer = 4.8;
+              actor.subtitleTimer = 3.2;
+              actor.badgeUpdate(actor.profile.name, 'Поймала! Подходи [E]!', '#10B981');
+              soundEngine.playPickup();
+              soundEngine.speakRussian('Ой, поймала на лету! Иди поводи по губкам!', {
+                pitch: actor.profile.voicePitch,
+                rate: actor.profile.voiceRate,
+              });
+              break;
+            }
+          }
+        }
+
+        if (consumed || proj.life <= 0 || proj.mesh.position.y <= 0.14) {
+          scene.remove(proj.mesh);
+          disposeObjectResources(proj.mesh);
+          thrownPirozhki.splice(i, 1);
+        }
       }
 
-      const bikeSpeed = 10.2;
-      pitbiker.pos.x = THREE.MathUtils.clamp(
-        pitbiker.pos.x + Math.sin(pitbiker.heading) * bikeSpeed * dt,
-        -26,
-        26
-      );
-      pitbiker.pos.z = THREE.MathUtils.clamp(
-        pitbiker.pos.z + Math.cos(pitbiker.heading) * bikeSpeed * dt,
-        -20,
-        24
-      );
-      pitbiker.group.position.copy(pitbiker.pos);
-      pitbiker.group.rotation.y = pitbiker.heading;
+      // 1c. Street Pickups Animation & Collection
+      goldenRespawnTimer -= dt;
+      if (goldenRespawnTimer <= 0) {
+        goldenRespawnTimer = 9;
+        const goldenCount = worldPickups.filter((p) => p.kind === 'golden_pie').length;
+        if (goldenCount < 3) {
+          const spot = GOLDEN_PIE_SPAWNS[Math.floor(Math.random() * GOLDEN_PIE_SPAWNS.length)];
+          spawnPickup('golden_pie', spot[0], spot[1]);
+        }
+      }
 
-      pitbiker.frontWheel.rotation.z -= bikeSpeed * dt * 2.5;
-      pitbiker.rearWheel.rotation.z -= bikeSpeed * dt * 2.5;
-      pitbiker.baltikaArm.rotation.x = Math.sin(elapsedSec * 10) * 0.35;
-      pitbiker.baltikaArm.rotation.z = -0.18 + Math.cos(elapsedSec * 8) * 0.2;
+      for (let i = worldPickups.length - 1; i >= 0; i--) {
+        const p = worldPickups[i];
+        p.phase += dt * 3.0;
+        p.mesh.rotation.y += dt * 2.2;
+        p.mesh.children[0].position.y = 0.55 + Math.sin(p.phase) * 0.12;
 
-      pitbiker.shoutTimer -= dt;
-      if (pitbiker.shoutTimer <= 0) {
-        pitbiker.shoutTimer = 3.6;
-        const shout = PITBIKER_SHOUTS[Math.floor(Math.random() * PITBIKER_SHOUTS.length)];
-        pitbiker.shoutUpdate('ПИТБАЙКЕР С БАЛТИКОЙ 0', shout, '#EF4444');
-        if (pitbiker.pos.distanceTo(playerPosRef.current) < 16) {
-          soundEngine.speakRussian(shout, { pitch: 0.78, rate: 1.15 });
+        const dPlayer = Math.hypot(
+          p.pos.x - playerPosRef.current.x,
+          p.pos.z - playerPosRef.current.z
+        );
+        if (dPlayer < 1.85) {
+          soundEngine.playPickup();
+          collectPickup(p.kind);
+          scene.remove(p.mesh);
+          disposeObjectResources(p.mesh);
+          worldPickups.splice(i, 1);
+        }
+      }
+
+      // 2. Frantic Village Pitbiker with Baltika 0
+      if (pitbiker.stunTimer > 0) {
+        pitbiker.stunTimer = Math.max(0, pitbiker.stunTimer - dt);
+        pitbiker.group.rotation.y += 7.5 * dt;
+        pitbiker.group.rotation.z = Math.sin(elapsedSec * 18) * 0.25;
+        pitbiker.baltikaArm.rotation.x = Math.sin(elapsedSec * 16) * 0.6;
+      } else {
+        const chasedActor = babushkaActors[pitbiker.targetBabushkaIdx % babushkaActors.length];
+        _vecA.subVectors(chasedActor.pos, pitbiker.pos);
+        _vecA.y = 0;
+        const distToChased = _vecA.length();
+
+        if (distToChased < 2.8) {
+          pitbiker.targetBabushkaIdx =
+            (pitbiker.targetBabushkaIdx + 1 + Math.floor(Math.random() * 2)) %
+            babushkaActors.length;
+        }
+
+        if (distToChased > 0.2) {
+          const desiredHeading = Math.atan2(_vecA.x, _vecA.z);
+          let diff = desiredHeading - pitbiker.heading;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          pitbiker.heading += THREE.MathUtils.clamp(diff, -3.4 * dt, 3.4 * dt);
+          pitbiker.group.rotation.z = THREE.MathUtils.damp(
+            pitbiker.group.rotation.z,
+            THREE.MathUtils.clamp(-diff * 0.38, -0.38, 0.38),
+            8,
+            dt
+          );
+        }
+
+        const bikeSpeed = eventType === 'PITBIKE_TURBO' ? 13.8 : 10.2;
+        pitbiker.pos.x = THREE.MathUtils.clamp(
+          pitbiker.pos.x + Math.sin(pitbiker.heading) * bikeSpeed * dt,
+          -26,
+          26
+        );
+        pitbiker.pos.z = THREE.MathUtils.clamp(
+          pitbiker.pos.z + Math.cos(pitbiker.heading) * bikeSpeed * dt,
+          -20,
+          24
+        );
+        pitbiker.group.position.copy(pitbiker.pos);
+        pitbiker.group.rotation.y = pitbiker.heading;
+
+        pitbiker.frontWheel.rotation.z -= bikeSpeed * dt * 2.5;
+        pitbiker.rearWheel.rotation.z -= bikeSpeed * dt * 2.5;
+        pitbiker.baltikaArm.rotation.x = Math.sin(elapsedSec * 10) * 0.35;
+        pitbiker.baltikaArm.rotation.z = -0.18 + Math.cos(elapsedSec * 8) * 0.2;
+
+        // Periodic loot drop behind pitbiker
+        pitbiker.dropTimer -= dt;
+        if (pitbiker.dropTimer <= 0) {
+          pitbiker.dropTimer = eventType === 'PITBIKE_TURBO' ? 2.6 : 5.2;
+          spawnPickup(
+            Math.random() > 0.45 ? 'gazyava' : 'kiriki',
+            pitbiker.pos.x,
+            pitbiker.pos.z
+          );
+        }
+
+        pitbiker.shoutTimer -= dt;
+        if (pitbiker.shoutTimer <= 0) {
+          pitbiker.shoutTimer = 3.8;
+          const shout = PITBIKER_SHOUTS[Math.floor(Math.random() * PITBIKER_SHOUTS.length)];
+          pitbiker.shoutUpdate('ПИТБАЙКЕР С БАЛТИКОЙ 0', shout, '#EF4444');
+          if (pitbiker.pos.distanceTo(playerPosRef.current) < 16) {
+            soundEngine.speakRussian(shout, { pitch: 0.78, rate: 1.15 });
+          }
         }
       }
 
@@ -841,21 +1113,22 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
 
       const distBikeToPlayer = pitbiker.pos.distanceTo(playerPosRef.current);
       soundEngine.playPitbikePutter(distBikeToPlayer);
-      if (distBikeToPlayer < 1.9 && pitBumpCooldown <= 0) {
-        pitBumpCooldown = 2.0;
+      if (pitbiker.stunTimer <= 0 && distBikeToPlayer < 1.9 && pitBumpCooldown <= 0) {
+        pitBumpCooldown = 2.2;
         soundEngine.playPitbikeBump();
         _vecB.subVectors(playerPosRef.current, pitbiker.pos).setY(0).normalize();
         playerPosRef.current.x = THREE.MathUtils.clamp(
-          playerPosRef.current.x + _vecB.x * 2.4,
+          playerPosRef.current.x + _vecB.x * 2.5,
           -ARENA_HALF_SIZE,
           ARENA_HALF_SIZE
         );
         playerPosRef.current.z = THREE.MathUtils.clamp(
-          playerPosRef.current.z + _vecB.z * 2.4,
+          playerPosRef.current.z + _vecB.z * 2.5,
           -ARENA_HALF_SIZE,
           ARENA_HALF_SIZE
         );
-        notifyAlert('Питбайкер пронёсся впритирку с Балтикой 0!');
+        pitbikerBump();
+        notifyAlert('Питбайкер задел с Балтикой 0! Комбо сброшено — бей его пирожком [Q]!');
       }
 
       // 3. Lively Meme Babushkas AI + Voice + Drooling
@@ -893,9 +1166,17 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
 
         actor.voiceCooldown = Math.max(0, actor.voiceCooldown - dt);
         actor.subtitleTimer = Math.max(0, actor.subtitleTimer - dt);
+        actor.charmedTimer = Math.max(0, actor.charmedTimer - dt);
 
         let bSpeed = 2.3;
-        if (distToBike < 10.0) {
+        if (actor.charmedTimer > 0) {
+          // Charmed by thrown pirozhok: faces player and waits happily
+          _vecC.subVectors(playerPosRef.current, actor.pos).setY(0);
+          if (_vecC.lengthSq() > 0.01) {
+            actor.targetAngle = Math.atan2(_vecC.x, _vecC.z);
+          }
+          bSpeed = 0.0;
+        } else if (distToBike < 10.0 && pitbiker.stunTimer <= 0) {
           _vecC.subVectors(actor.pos, pitbiker.pos).setY(0);
           if (_vecC.lengthSq() > 0.01) {
             actor.targetAngle = Math.atan2(_vecC.x, _vecC.z);
@@ -957,21 +1238,29 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
           dt
         );
 
-        // Lively head bobbing & looking toward player when nearby
-        if (distToPlayer < 8) {
-          actor.headGroup.rotation.x = Math.sin(elapsedSec * 5) * 0.08 - 0.05;
+        // Head bobbing & arms animation
+        if (actor.charmedTimer > 0) {
+          actor.headGroup.rotation.x = Math.sin(elapsedSec * 7) * 0.1;
+          actor.leftArm.rotation.x = -0.9 + Math.sin(elapsedSec * 8) * 0.4;
+          actor.rightArm.rotation.x = -0.9 + Math.cos(elapsedSec * 8) * 0.4;
+          actor.leftLeg.rotation.x = 0;
+          actor.rightLeg.rotation.x = 0;
         } else {
-          actor.headGroup.rotation.x = Math.sin(elapsedSec * 3) * 0.05;
+          if (distToPlayer < 8) {
+            actor.headGroup.rotation.x = Math.sin(elapsedSec * 5) * 0.08 - 0.05;
+          } else {
+            actor.headGroup.rotation.x = Math.sin(elapsedSec * 3) * 0.05;
+          }
+          actor.walkPhase += dt * bSpeed * 2.8;
+          const swing = Math.sin(actor.walkPhase) * 0.5;
+          actor.leftArm.rotation.x = swing;
+          actor.rightArm.rotation.x = -swing;
+          actor.leftLeg.rotation.x = -swing * 0.7;
+          actor.rightLeg.rotation.x = swing * 0.7;
         }
 
-        actor.walkPhase += dt * bSpeed * 2.8;
-        const swing = Math.sin(actor.walkPhase) * 0.5;
-        actor.leftArm.rotation.x = swing;
-        actor.rightArm.rotation.x = -swing;
-        actor.leftLeg.rotation.x = -swing * 0.7;
-        actor.rightLeg.rotation.x = swing * 0.7;
-
-        const droolBoost = distToPlayer < 6.5 ? 1.55 : 1.0;
+        const eventDroolMult = eventType === 'DOUBLE_DROOL' ? 1.7 : 1.0;
+        const droolBoost = (distToPlayer < 6.5 ? 1.55 : 1.0) * eventDroolMult;
         actor.droolStrandL.scale.y = 0.8 + Math.sin(elapsedSec * 5 + actor.pos.x) * 0.35;
         actor.droolStrandR.scale.y = 0.8 + Math.cos(elapsedSec * 4.5 + actor.pos.z) * 0.35;
         actor.droolDrops.forEach((drop) => {
@@ -983,7 +1272,9 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
         });
 
         if (shouldSyncBadges && runtime && actor.subtitleTimer <= 0) {
-          if (runtime.cooldownRemaining > 0) {
+          if (actor.charmedTimer > 0) {
+            actor.badgeUpdate(actor.profile.name, 'Очарована! Подходи [E]', '#10B981');
+          } else if (runtime.cooldownRemaining > 0) {
             actor.badgeUpdate(
               actor.profile.name,
               `Жуёт · ${Math.ceil(runtime.cooldownRemaining)}с`,
@@ -1052,6 +1343,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       cancelAnimationFrame(frameId);
       clearTimeout(frameId);
 
+      renderer.domElement.removeEventListener('contextmenu', onContextMenu);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
       renderer.domElement.removeEventListener('webglcontextrestored', onContextRestored);
@@ -1060,17 +1352,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       window.removeEventListener('resize', onResize);
       document.removeEventListener('pointerlockchange', onPointerLockChange);
 
-      scene.traverse((obj) => {
-        if ((obj as THREE.Mesh).isMesh) {
-          const m = obj as THREE.Mesh;
-          m.geometry.dispose();
-          if (Array.isArray(m.material)) {
-            m.material.forEach((mat) => mat.dispose());
-          } else {
-            m.material.dispose();
-          }
-        }
-      });
+      disposeObjectResources(scene);
 
       grassTex.dispose();
       asphalt.map.dispose();
@@ -1103,7 +1385,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
 
       {isPlaying && !isBowling && !pointerLocked && !contextLost && (
         <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-md bg-[#16191D]/85 text-xs font-medium text-stone-200 whitespace-nowrap border border-white/10">
-          Кликни по экрану для обзора мышкой · WASD бег · E действие
+          Клик — обзор мышкой · WASD бег · E действие · Q / ПКМ бросить пирожок
         </div>
       )}
 

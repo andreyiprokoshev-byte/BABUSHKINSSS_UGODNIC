@@ -68,7 +68,7 @@ class SoundEngine {
         synth.speak(utter);
         return;
       } catch {
-        // Fallback to synthesized formant chatter below
+        // Fallback below
       }
     }
     this.playVoiceChatter(opts.pitch ?? 1.2);
@@ -109,6 +109,58 @@ class SoundEngine {
     gain.connect(ctx.destination);
     osc.start(now);
     osc.stop(now + 0.15);
+  }
+
+  public playThrowPirozhok(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(340, now);
+    osc.frequency.exponentialRampToValueAtTime(680, now + 0.11);
+    gain.gain.setValueAtTime(0.11, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.14);
+  }
+
+  public playHitPitbiker(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(480, now);
+    osc.frequency.exponentialRampToValueAtTime(110, now + 0.25);
+    gain.gain.setValueAtTime(0.16, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.27);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.28);
+  }
+
+  public playPickup(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    [660, 880].forEach((freq, i) => {
+      const now = ctx.currentTime + i * 0.05;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.09, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.12);
+    });
   }
 
   public playBakeRestock(): void {
