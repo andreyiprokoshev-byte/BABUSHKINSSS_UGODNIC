@@ -19,8 +19,16 @@ export default defineConfig(() => {
           if (error) {
             return;
           }
-          const distDir = path.resolve(__dirname, 'dist');
-          const srcAssets = path.resolve(__dirname, 'src/assets');
+          const distDir = path.resolve(import.meta.dirname, 'dist');
+          const licenseDir = path.join(distDir, 'licenses');
+          fs.mkdirSync(licenseDir, {recursive: true});
+          for (const font of ['jetbrains-mono', 'manrope', 'rubik']) {
+            fs.copyFileSync(
+              path.join(import.meta.dirname, 'node_modules', '@fontsource-variable', font, 'LICENSE'),
+              path.join(licenseDir, `${font}.txt`),
+            );
+          }
+          const srcAssets = path.resolve(import.meta.dirname, 'src/assets');
           const distAssets = path.resolve(distDir, 'src/assets');
           if (fs.existsSync(distDir) && fs.existsSync(srcAssets)) {
             fs.cpSync(srcAssets, distAssets, {recursive: true, force: true});
@@ -30,7 +38,7 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     server: {
