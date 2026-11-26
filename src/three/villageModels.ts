@@ -88,7 +88,6 @@ export function createAsphaltTextures(maxAnisotropy: number): {
     ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
   }
 
-  // Wet puddle roughness map (darker = glossier wet asphalt reflection!)
   const rc = document.createElement('canvas');
   rc.width = 512;
   rc.height = 512;
@@ -178,6 +177,42 @@ export function createWoodTexture(maxAnisotropy: number): THREE.CanvasTexture {
   return tex;
 }
 
+function createFabricPatternTexture(baseHex: string, floralHex: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = baseHex;
+  ctx.fillRect(0, 0, 128, 128);
+
+  // Subtle knit weave lines
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  for (let y = 0; y < 128; y += 4) {
+    ctx.fillRect(0, y, 128, 1);
+  }
+  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+  for (let x = 0; x < 128; x += 6) {
+    ctx.fillRect(x, 0, 1, 128);
+  }
+
+  // Folk floral/knit dots
+  ctx.fillStyle = floralHex;
+  for (let y = 12; y < 128; y += 24) {
+    for (let x = 12; x < 128; x += 24) {
+      ctx.beginPath();
+      ctx.arc(x + (y % 48 === 12 ? 0 : 12), y, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 2);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export function createPanelkaFacadeTextures(
   wallColor: string,
   maxAnisotropy: number
@@ -197,7 +232,6 @@ export function createPanelkaFacadeTextures(
   ectx.fillStyle = '#000000';
   ectx.fillRect(0, 0, 512, 512);
 
-  // Concrete panel seams
   ctx.strokeStyle = 'rgba(0,0,0,0.18)';
   ctx.lineWidth = 3;
   for (let y = 0; y < 512; y += 102) {
@@ -207,7 +241,6 @@ export function createPanelkaFacadeTextures(
     ctx.stroke();
   }
 
-  // Windows & warm golden-hour interior glow
   for (let row = 0; row < 5; row++) {
     for (let col = 0; col < 5; col++) {
       const wx = 26 + col * 96;
@@ -218,8 +251,6 @@ export function createPanelkaFacadeTextures(
       ctx.strokeStyle = '#E2E8F0';
       ctx.lineWidth = 4;
       ctx.strokeRect(wx, wy, 56, 62);
-
-      // Window cross-bar
       ctx.fillStyle = '#CBD5E1';
       ctx.fillRect(wx + 26, wy, 4, 62);
 
@@ -292,12 +323,12 @@ export function createSignTexture(
   ctx.strokeRect(4, 4, 504, 120);
 
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = '800 34px Rubik, sans-serif';
+  ctx.font = '800 31px Rubik, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText(line1, 256, 56);
 
   ctx.fillStyle = accentHex;
-  ctx.font = '700 22px Manrope, sans-serif';
+  ctx.font = '700 20px Manrope, sans-serif';
   ctx.fillText(line2, 256, 96);
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -312,30 +343,30 @@ export function createFloatingBadgeSprite(
   accentHex: string = '#F59E0B'
 ): { sprite: THREE.Sprite; updateText: (t: string, s: string, accent?: string) => void } {
   const canvas = document.createElement('canvas');
-  canvas.width = 380;
+  canvas.width = 400;
   canvas.height = 96;
   const ctx = canvas.getContext('2d')!;
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
 
   const draw = (t: string, s: string, accent: string) => {
-    ctx.clearRect(0, 0, 380, 96);
+    ctx.clearRect(0, 0, 400, 96);
     ctx.fillStyle = 'rgba(20, 23, 28, 0.9)';
     ctx.beginPath();
-    ctx.roundRect(10, 10, 360, 76, 14);
+    ctx.roundRect(10, 10, 380, 76, 14);
     ctx.fill();
     ctx.strokeStyle = accent;
     ctx.lineWidth = 4;
     ctx.stroke();
 
     ctx.fillStyle = '#FAF7F2';
-    ctx.font = '700 23px Rubik, sans-serif';
+    ctx.font = '700 22px Rubik, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(t, 190, 42);
+    ctx.fillText(t, 200, 42);
 
     ctx.fillStyle = accent;
-    ctx.font = '700 19px Manrope, sans-serif';
-    ctx.fillText(s, 190, 72);
+    ctx.font = '700 18px Manrope, sans-serif';
+    ctx.fillText(s, 200, 72);
     tex.needsUpdate = true;
   };
 
@@ -348,21 +379,293 @@ export function createFloatingBadgeSprite(
     depthWrite: false,
   });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(2.5, 0.64, 1);
+  sprite.scale.set(2.5, 0.62, 1);
   return {
     sprite,
     updateText: (t: string, s: string, accent: string = accentHex) => draw(t, s, accent),
   };
 }
 
+interface HumanBabushkaRig {
+  root: THREE.Group;
+  torsoGroup: THREE.Group;
+  headGroup: THREE.Group;
+  leftShoulder: THREE.Group;
+  rightShoulder: THREE.Group;
+  leftElbow: THREE.Group;
+  rightElbow: THREE.Group;
+  leftHip: THREE.Group;
+  rightHip: THREE.Group;
+  leftKnee: THREE.Group;
+  rightKnee: THREE.Group;
+}
+
+function buildHumanBabushkaRig(
+  coatColor: string,
+  scarfColor: string,
+  faceTexture: THREE.Texture,
+  sitting: boolean = false
+): HumanBabushkaRig {
+  const root = new THREE.Group();
+
+  const coatTex = createFabricPatternTexture(coatColor, 'rgba(255,255,255,0.22)');
+  const scarfTex = createFabricPatternTexture(scarfColor, '#FDE68A');
+
+  const coatMat = new THREE.MeshStandardMaterial({
+    map: coatTex,
+    roughness: 0.78,
+    metalness: 0.03,
+  });
+  const skirtMat = new THREE.MeshStandardMaterial({
+    color: '#1E2433',
+    roughness: 0.85,
+  });
+  const scarfMat = new THREE.MeshStandardMaterial({
+    map: scarfTex,
+    roughness: 0.74,
+    side: THREE.DoubleSide,
+  });
+  const skinMat = new THREE.MeshStandardMaterial({
+    color: '#EEC3A5',
+    roughness: 0.62,
+  });
+  const shoeMat = new THREE.MeshStandardMaterial({
+    color: '#1C1917',
+    roughness: 0.48,
+  });
+
+  // Hips & Articulated Legs
+  const buildLeg = (side: -1 | 1) => {
+    const hip = new THREE.Group();
+    hip.position.set(side * 0.115, 0.74, 0);
+
+    const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.068, 0.24, 6, 10), skirtMat);
+    thigh.position.y = -0.17;
+    thigh.castShadow = true;
+    hip.add(thigh);
+
+    const knee = new THREE.Group();
+    knee.position.set(0, -0.35, 0);
+    hip.add(knee);
+
+    const calf = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.24, 6, 10), skinMat);
+    calf.position.y = -0.17;
+    calf.castShadow = true;
+    knee.add(calf);
+
+    const shoe = new THREE.Mesh(new THREE.CapsuleGeometry(0.056, 0.11, 6, 10), shoeMat);
+    shoe.rotation.x = Math.PI / 2;
+    shoe.position.set(0, -0.35, 0.045);
+    shoe.castShadow = true;
+    knee.add(shoe);
+
+    if (sitting) {
+      hip.rotation.x = -1.42;
+      knee.rotation.x = 1.42;
+    }
+
+    root.add(hip);
+    return { hip, knee };
+  };
+
+  const leftLegRig = buildLeg(-1);
+  const rightLegRig = buildLeg(1);
+
+  // Sculpted Anatomical Torso + Flared Coat/Skirt using LatheGeometry
+  const torsoGroup = new THREE.Group();
+  torsoGroup.position.set(0, 0.72, 0);
+  root.add(torsoGroup);
+
+  const skirtPoints = [
+    new THREE.Vector2(0.0, -0.26),
+    new THREE.Vector2(0.28, -0.26),
+    new THREE.Vector2(0.24, -0.1),
+    new THREE.Vector2(0.21, 0.04),
+    new THREE.Vector2(0.18, 0.14),
+    new THREE.Vector2(0.0, 0.14),
+  ];
+  const skirtMesh = new THREE.Mesh(new THREE.LatheGeometry(skirtPoints, 24), skirtMat);
+  skirtMesh.castShadow = true;
+  skirtMesh.receiveShadow = true;
+  torsoGroup.add(skirtMesh);
+
+  const coatPoints = [
+    new THREE.Vector2(0.0, -0.02),
+    new THREE.Vector2(0.23, -0.02),
+    new THREE.Vector2(0.20, 0.18),
+    new THREE.Vector2(0.22, 0.36),
+    new THREE.Vector2(0.235, 0.50),
+    new THREE.Vector2(0.19, 0.62),
+    new THREE.Vector2(0.085, 0.66),
+    new THREE.Vector2(0.0, 0.66),
+  ];
+  const coatMesh = new THREE.Mesh(new THREE.LatheGeometry(coatPoints, 24), coatMat);
+  coatMesh.scale.set(1.06, 1.0, 0.78); // Natural human front-to-back chest/back depth!
+  coatMesh.castShadow = true;
+  coatMesh.receiveShadow = true;
+  torsoGroup.add(coatMesh);
+
+  // Soft knitted collar shawl
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.135, 0.045, 10, 20), scarfMat);
+  collar.rotation.x = Math.PI / 2 - 0.15;
+  collar.position.set(0, 0.64, 0.02);
+  torsoGroup.add(collar);
+
+  // Articulated 2-Segment Arms with Elbows & Hands
+  const buildArm = (side: -1 | 1, withBag: boolean) => {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(side * 0.245, 0.58, 0);
+
+    const shoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.068, 12, 10), coatMat);
+    shoulder.add(shoulderCap);
+
+    const upperArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.20, 6, 10), coatMat);
+    upperArm.position.y = -0.14;
+    upperArm.castShadow = true;
+    shoulder.add(upperArm);
+
+    const elbow = new THREE.Group();
+    elbow.position.set(0, -0.28, 0);
+    shoulder.add(elbow);
+
+    const forearm = new THREE.Mesh(new THREE.CapsuleGeometry(0.044, 0.19, 6, 10), coatMat);
+    forearm.position.y = -0.13;
+    forearm.castShadow = true;
+    elbow.add(forearm);
+
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), skinMat);
+    hand.scale.set(0.85, 1.15, 0.72);
+    hand.position.y = -0.25;
+    elbow.add(hand);
+
+    if (withBag && !sitting) {
+      const bag = new THREE.Mesh(
+        new THREE.BoxGeometry(0.16, 0.22, 0.08),
+        new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.85 })
+      );
+      bag.position.set(0, -0.36, 0.04);
+      bag.castShadow = true;
+      elbow.add(bag);
+    }
+
+    if (sitting) {
+      shoulder.rotation.x = -0.52;
+      shoulder.rotation.z = side * -0.12;
+      elbow.rotation.x = -0.75;
+    } else {
+      shoulder.rotation.z = side * -0.1;
+      elbow.rotation.x = -0.25;
+    }
+
+    torsoGroup.add(shoulder);
+    return { shoulder, elbow };
+  };
+
+  const leftArmRig = buildArm(-1, false);
+  const rightArmRig = buildArm(1, true);
+
+  // Smooth Neck & Anatomically Sculpted Head
+  const headGroup = new THREE.Group();
+  headGroup.position.set(0, 0.71, 0.015);
+  torsoGroup.add(headGroup);
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.085, 0.14, 14), skinMat);
+  neck.position.set(0, -0.02, -0.01);
+  headGroup.add(neck);
+
+  const cranium = new THREE.Mesh(new THREE.SphereGeometry(0.185, 24, 18), skinMat);
+  cranium.position.set(0, 0.13, 0);
+  cranium.scale.set(0.92, 1.07, 0.97);
+  cranium.castShadow = true;
+  headGroup.add(cranium);
+
+  // Contoured 3D Curved Face Portrait wrapping smoothly around cranium front (+Z)
+  const faceGeo = new THREE.SphereGeometry(
+    0.189,
+    24,
+    18,
+    Math.PI * 0.17,
+    Math.PI * 0.66,
+    Math.PI * 0.21,
+    Math.PI * 0.56
+  );
+  const faceMat = new THREE.MeshStandardMaterial({
+    map: faceTexture,
+    roughness: 0.56,
+    metalness: 0.0,
+  });
+  const curvedFace = new THREE.Mesh(faceGeo, faceMat);
+  curvedFace.position.set(0, 0.13, 0.002);
+  curvedFace.scale.set(0.92, 1.07, 0.97);
+  headGroup.add(curvedFace);
+
+  // Draped 3D Headscarf (Platok) framing the face naturally
+  const scarfHoodGeo = new THREE.SphereGeometry(
+    0.206,
+    24,
+    18,
+    Math.PI * 0.80,
+    Math.PI * 1.40,
+    0,
+    Math.PI * 0.84
+  );
+  const scarfHood = new THREE.Mesh(scarfHoodGeo, scarfMat);
+  scarfHood.position.set(0, 0.135, -0.012);
+  scarfHood.scale.set(0.95, 1.09, 1.0);
+  scarfHood.castShadow = true;
+  headGroup.add(scarfHood);
+
+  const scarfCrown = new THREE.Mesh(
+    new THREE.SphereGeometry(0.205, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.34),
+    scarfMat
+  );
+  scarfCrown.position.set(0, 0.145, -0.004);
+  scarfCrown.scale.set(0.95, 1.08, 1.0);
+  headGroup.add(scarfCrown);
+
+  // Chin scarf knot & hanging tails
+  const chinKnot = new THREE.Mesh(new THREE.SphereGeometry(0.058, 12, 10), scarfMat);
+  chinKnot.position.set(0, -0.04, 0.11);
+  headGroup.add(chinKnot);
+
+  const scarfTailL = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.18, 10), scarfMat);
+  scarfTailL.position.set(-0.045, -0.12, 0.12);
+  scarfTailL.rotation.set(-0.25, 0, Math.PI + 0.25);
+  headGroup.add(scarfTailL);
+
+  const scarfTailR = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.18, 10), scarfMat);
+  scarfTailR.position.set(0.045, -0.12, 0.12);
+  scarfTailR.rotation.set(-0.25, 0, Math.PI - 0.25);
+  headGroup.add(scarfTailR);
+
+  return {
+    root,
+    torsoGroup,
+    headGroup,
+    leftShoulder: leftArmRig.shoulder,
+    rightShoulder: rightArmRig.shoulder,
+    leftElbow: leftArmRig.elbow,
+    rightElbow: rightArmRig.elbow,
+    leftHip: leftLegRig.hip,
+    rightHip: rightLegRig.hip,
+    leftKnee: leftLegRig.knee,
+    rightKnee: rightLegRig.knee,
+  };
+}
+
 export interface BabushkaActor {
   profile: BabushkaProfile;
   group: THREE.Group;
+  torsoGroup: THREE.Group;
   headGroup: THREE.Group;
-  leftArm: THREE.Mesh;
-  rightArm: THREE.Mesh;
-  leftLeg: THREE.Mesh;
-  rightLeg: THREE.Mesh;
+  leftShoulder: THREE.Group;
+  rightShoulder: THREE.Group;
+  leftElbow: THREE.Group;
+  rightElbow: THREE.Group;
+  leftHip: THREE.Group;
+  rightHip: THREE.Group;
+  leftKnee: THREE.Group;
+  rightKnee: THREE.Group;
   droolStrandL: THREE.Mesh;
   droolStrandR: THREE.Mesh;
   droolDrops: { mesh: THREE.Mesh; y: number; speed: number }[];
@@ -374,109 +677,22 @@ export interface BabushkaActor {
   voiceCooldown: number;
   subtitleTimer: number;
   charmedTimer: number;
+  ridingCarId: string | null;
 }
 
 export function buildMemeBabushka(
   profile: BabushkaProfile,
   memeFaceTexture: THREE.Texture
 ): BabushkaActor {
-  const group = new THREE.Group();
-  group.position.set(profile.startX, 0, profile.startZ);
-
-  const coatMat = new THREE.MeshStandardMaterial({
-    color: profile.coatColor,
-    roughness: 0.78,
-    metalness: 0.04,
-  });
-  const skirtMat = new THREE.MeshStandardMaterial({
-    color: '#262336',
-    roughness: 0.88,
-  });
-  const scarfMat = new THREE.MeshStandardMaterial({
-    color: profile.scarfColor,
-    roughness: 0.75,
-  });
-  const skinMat = new THREE.MeshStandardMaterial({
-    color: '#F2C6AA',
-    roughness: 0.65,
-  });
-  const bootMat = new THREE.MeshStandardMaterial({
-    color: '#18181B',
-    roughness: 0.55,
-  });
-
-  // Legs/Boots
-  const legGeo = new THREE.CylinderGeometry(0.11, 0.13, 0.44, 10);
-  const leftLeg = new THREE.Mesh(legGeo, bootMat);
-  leftLeg.position.set(-0.15, 0.22, 0);
-  leftLeg.castShadow = true;
-  group.add(leftLeg);
-
-  const rightLeg = new THREE.Mesh(legGeo, bootMat);
-  rightLeg.position.set(0.15, 0.22, 0);
-  rightLeg.castShadow = true;
-  group.add(rightLeg);
-
-  // Skirt
-  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.44, 0.68, 16), skirtMat);
-  skirt.position.y = 0.68;
-  skirt.castShadow = true;
-  skirt.receiveShadow = true;
-  group.add(skirt);
-
-  // Cardigan Torso
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.31, 0.64, 16), coatMat);
-  torso.position.y = 1.24;
-  torso.castShadow = true;
-  group.add(torso);
-
-  // Arms
-  const armGeo = new THREE.CylinderGeometry(0.08, 0.075, 0.54, 10);
-  const leftArm = new THREE.Mesh(armGeo, coatMat);
-  leftArm.position.set(-0.34, 1.24, 0);
-  leftArm.rotation.z = 0.24;
-  leftArm.castShadow = true;
-  group.add(leftArm);
-
-  const rightArm = new THREE.Mesh(armGeo, coatMat);
-  rightArm.position.set(0.34, 1.24, 0);
-  rightArm.rotation.z = -0.24;
-  rightArm.castShadow = true;
-  group.add(rightArm);
-
-  // Articulated Head Group
-  const headGroup = new THREE.Group();
-  headGroup.position.set(0, 1.76, 0);
-  group.add(headGroup);
-
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 14), skinMat);
-  head.castShadow = true;
-  headGroup.add(head);
-
-  const scarfHood = new THREE.Mesh(
-    new THREE.SphereGeometry(0.305, 16, 14, 0, Math.PI * 2, 0, Math.PI * 0.72),
-    scarfMat
+  const rig = buildHumanBabushkaRig(
+    profile.coatColor,
+    profile.scarfColor,
+    memeFaceTexture,
+    false
   );
-  scarfHood.position.set(0, 0.03, -0.02);
-  scarfHood.rotation.x = -0.28;
-  scarfHood.castShadow = true;
-  headGroup.add(scarfHood);
+  rig.root.position.set(profile.startX, 0, profile.startZ);
 
-  const scarfKnot = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.24, 10), scarfMat);
-  scarfKnot.position.set(0, -0.28, 0.16);
-  scarfKnot.rotation.x = Math.PI;
-  headGroup.add(scarfKnot);
-
-  const faceMat = new THREE.MeshStandardMaterial({
-    map: memeFaceTexture,
-    roughness: 0.55,
-    metalness: 0.0,
-  });
-  const facePlane = new THREE.Mesh(new THREE.CircleGeometry(0.275, 24), faceMat);
-  facePlane.position.set(0, 0, 0.26);
-  headGroup.add(facePlane);
-
-  // Glossy 3D Drool Strands & Falling Droplets
+  // Glossy 3D Drool Strands & Falling Droplets anchored at mouth height
   const droolMat = new THREE.MeshPhysicalMaterial({
     color: 0xbfe9ff,
     roughness: 0.06,
@@ -485,22 +701,26 @@ export function buildMemeBabushka(
     opacity: 0.9,
     clearcoat: 1.0,
   });
-  const strandGeo = new THREE.CylinderGeometry(0.017, 0.008, 0.28, 8);
+  const strandGeo = new THREE.CylinderGeometry(0.014, 0.007, 0.24, 8);
   const droolStrandL = new THREE.Mesh(strandGeo, droolMat);
-  droolStrandL.position.set(-0.06, -0.22, 0.29);
-  headGroup.add(droolStrandL);
+  droolStrandL.position.set(-0.045, -0.06, 0.19);
+  rig.headGroup.add(droolStrandL);
 
   const droolStrandR = new THREE.Mesh(strandGeo, droolMat);
-  droolStrandR.position.set(0.05, -0.2, 0.29);
-  headGroup.add(droolStrandR);
+  droolStrandR.position.set(0.04, -0.05, 0.19);
+  rig.headGroup.add(droolStrandR);
 
   const droolDrops: { mesh: THREE.Mesh; y: number; speed: number }[] = [];
-  const dropGeo = new THREE.SphereGeometry(0.03, 8, 8);
+  const dropGeo = new THREE.SphereGeometry(0.025, 8, 8);
   for (let i = 0; i < 4; i++) {
     const drop = new THREE.Mesh(dropGeo, droolMat);
-    const startY = 1.48 - i * 0.34;
-    drop.position.set((i % 2 === 0 ? -0.05 : 0.05) + (Math.random() - 0.5) * 0.03, startY, 0.3);
-    group.add(drop);
+    const startY = 1.36 - i * 0.32;
+    drop.position.set(
+      (i % 2 === 0 ? -0.045 : 0.045) + (Math.random() - 0.5) * 0.025,
+      startY,
+      0.21
+    );
+    rig.root.add(drop);
     droolDrops.push({ mesh: drop, y: startY, speed: 1.25 + Math.random() * 0.65 });
   }
 
@@ -509,17 +729,22 @@ export function buildMemeBabushka(
     `Ждёт: ${profile.defaultCraving}`,
     '#F59E0B'
   );
-  sprite.position.set(0, 2.48, 0);
-  group.add(sprite);
+  sprite.position.set(0, 2.25, 0);
+  rig.root.add(sprite);
 
   return {
     profile,
-    group,
-    headGroup,
-    leftArm,
-    rightArm,
-    leftLeg,
-    rightLeg,
+    group: rig.root,
+    torsoGroup: rig.torsoGroup,
+    headGroup: rig.headGroup,
+    leftShoulder: rig.leftShoulder,
+    rightShoulder: rig.rightShoulder,
+    leftElbow: rig.leftElbow,
+    rightElbow: rig.rightElbow,
+    leftHip: rig.leftHip,
+    rightHip: rig.rightHip,
+    leftKnee: rig.leftKnee,
+    rightKnee: rig.rightKnee,
     droolStrandL,
     droolStrandR,
     droolDrops,
@@ -531,6 +756,7 @@ export function buildMemeBabushka(
     voiceCooldown: 1 + Math.random() * 3,
     subtitleTimer: 0,
     charmedTimer: 0,
+    ridingCarId: null,
   };
 }
 
@@ -612,7 +838,7 @@ export function buildFranticPitbiker(baltikaTex: THREE.Texture): PitbikerActor {
     new THREE.MeshStandardMaterial({
       color: 0xfef08a,
       emissive: 0xfacc15,
-      emissiveIntensity: 1.8,
+      emissiveIntensity: 1.5,
     })
   );
   headlight.rotation.x = Math.PI / 2;
@@ -623,29 +849,29 @@ export function buildFranticPitbiker(baltikaTex: THREE.Texture): PitbikerActor {
   seat.position.set(0, 0.86, -0.18);
   group.add(seat);
 
-  const riderTorso = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.62, 10), tracksuitMat);
+  const riderTorso = new THREE.Mesh(new THREE.CapsuleGeometry(0.18, 0.36, 8, 12), tracksuitMat);
   riderTorso.position.set(0, 1.18, -0.1);
   riderTorso.rotation.x = 0.42;
   riderTorso.castShadow = true;
   group.add(riderTorso);
 
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.14), stripeMat);
-  stripe.position.set(0, 1.4, -0.02);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.06, 0.14), stripeMat);
+  stripe.position.set(0, 1.38, -0.02);
   group.add(stripe);
 
-  const riderHead = new THREE.Mesh(new THREE.SphereGeometry(0.19, 14, 12), skinMat);
+  const riderHead = new THREE.Mesh(new THREE.SphereGeometry(0.185, 14, 12), skinMat);
   riderHead.position.set(0, 1.58, 0.08);
   group.add(riderHead);
 
   const helmet = new THREE.Mesh(
-    new THREE.SphereGeometry(0.215, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.62),
+    new THREE.SphereGeometry(0.21, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.62),
     frameMat
   );
   helmet.position.set(0, 1.61, 0.06);
   helmet.rotation.x = -0.2;
   group.add(helmet);
 
-  const leftArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.055, 0.56, 8), tracksuitMat);
+  const leftArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.42, 6, 8), tracksuitMat);
   leftArm.position.set(-0.24, 1.26, 0.24);
   leftArm.rotation.x = 1.05;
   leftArm.rotation.z = -0.2;
@@ -655,10 +881,7 @@ export function buildFranticPitbiker(baltikaTex: THREE.Texture): PitbikerActor {
   baltikaArm.position.set(0.25, 1.4, -0.02);
   group.add(baltikaArm);
 
-  const rightArmMesh = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.055, 0.52, 8),
-    tracksuitMat
-  );
+  const rightArmMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.4, 6, 8), tracksuitMat);
   rightArmMesh.position.set(0.06, 0.24, 0);
   rightArmMesh.rotation.z = -0.25;
   baltikaArm.add(rightArmMesh);
@@ -717,6 +940,332 @@ export function buildFranticPitbiker(baltikaTex: THREE.Texture): PitbikerActor {
   };
 }
 
+export interface ZakladchikActor {
+  group: THREE.Group;
+  headGroup: THREE.Group;
+  leftShoulder: THREE.Group;
+  rightShoulder: THREE.Group;
+  leftHip: THREE.Group;
+  rightHip: THREE.Group;
+  badgeUpdate: (t: string, s: string, accent?: string) => void;
+  pos: THREE.Vector3;
+  targetX: number;
+  targetZ: number;
+  placeTimer: number;
+  stunTimer: number;
+  walkPhase: number;
+  speechCooldown: number;
+}
+
+export function buildZakladchik(idx: number, startX: number, startZ: number): ZakladchikActor {
+  const group = new THREE.Group();
+  group.position.set(startX, 0, startZ);
+
+  const hoodieMat = new THREE.MeshStandardMaterial({
+    color: idx % 2 === 0 ? 0x1e293b : 0x312e81,
+    roughness: 0.8,
+  });
+  const pantsMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.85 });
+  const packMat = new THREE.MeshStandardMaterial({ color: 0x065f46, roughness: 0.7 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xe5b89a, roughness: 0.65 });
+  const maskMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.6 });
+
+  const leftHip = new THREE.Group();
+  leftHip.position.set(-0.11, 0.82, 0);
+  const legL = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.56, 6, 10), pantsMat);
+  legL.position.y = -0.36;
+  legL.castShadow = true;
+  leftHip.add(legL);
+  group.add(leftHip);
+
+  const rightHip = new THREE.Group();
+  rightHip.position.set(0.11, 0.82, 0);
+  const legR = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.56, 6, 10), pantsMat);
+  legR.position.y = -0.36;
+  legR.castShadow = true;
+  rightHip.add(legR);
+  group.add(rightHip);
+
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.21, 0.44, 8, 12), hoodieMat);
+  torso.scale.set(1.05, 1, 0.76);
+  torso.position.y = 1.15;
+  torso.castShadow = true;
+  group.add(torso);
+
+  // Courier backpack
+  const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.38, 0.16), packMat);
+  backpack.position.set(0, 1.18, -0.2);
+  backpack.castShadow = true;
+  group.add(backpack);
+
+  const leftShoulder = new THREE.Group();
+  leftShoulder.position.set(-0.26, 1.34, 0);
+  const armL = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.44, 6, 8), hoodieMat);
+  armL.position.y = -0.24;
+  leftShoulder.add(armL);
+  group.add(leftShoulder);
+
+  const rightShoulder = new THREE.Group();
+  rightShoulder.position.set(0.26, 1.34, 0);
+  const armR = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.44, 6, 8), hoodieMat);
+  armR.position.y = -0.24;
+  rightShoulder.add(armR);
+  group.add(rightShoulder);
+
+  const headGroup = new THREE.Group();
+  headGroup.position.set(0, 1.56, 0.02);
+  group.add(headGroup);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.165, 16, 14), skinMat);
+  head.position.y = 0.08;
+  headGroup.add(head);
+
+  const hood = new THREE.Mesh(
+    new THREE.SphereGeometry(0.195, 16, 14, Math.PI * 0.75, Math.PI * 1.5, 0, Math.PI * 0.85),
+    hoodieMat
+  );
+  hood.position.set(0, 0.09, -0.02);
+  headGroup.add(hood);
+
+  const glasses = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.055, 0.05), maskMat);
+  glasses.position.set(0, 0.11, 0.155);
+  headGroup.add(glasses);
+
+  const mask = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.13, 0.12, 12), maskMat);
+  mask.position.set(0, 0.02, 0.04);
+  headGroup.add(mask);
+
+  const { sprite, updateText } = createFloatingBadgeSprite(
+    `ЗАКЛАДЧИК #${idx + 1}`,
+    'Ищет кустик для тайника…',
+    '#A855F7'
+  );
+  sprite.position.set(0, 2.25, 0);
+  group.add(sprite);
+
+  return {
+    group,
+    headGroup,
+    leftShoulder,
+    rightShoulder,
+    leftHip,
+    rightHip,
+    badgeUpdate: updateText,
+    pos: new THREE.Vector3(startX, 0, startZ),
+    targetX: startX + (Math.random() - 0.5) * 20,
+    targetZ: startZ + (Math.random() - 0.5) * 20,
+    placeTimer: 4 + idx * 2.5,
+    stunTimer: 0,
+    walkPhase: Math.random() * 6,
+    speechCooldown: 3 + idx * 2,
+  };
+}
+
+export interface PetrovichOfficeRig {
+  group: THREE.Group;
+  petrovichHead: THREE.Group;
+  petrovichArm: THREE.Group;
+  interactPoint: THREE.Vector3;
+}
+
+export function buildPetrovichOffice(
+  woodTex: THREE.Texture,
+  signTex: THREE.Texture
+): PetrovichOfficeRig {
+  const group = new THREE.Group();
+  group.position.set(27, 0, -25);
+  group.rotation.y = -0.38;
+
+  const brickMat = new THREE.MeshStandardMaterial({ color: 0x573b32, roughness: 0.88 });
+  const steelMat = new THREE.MeshStandardMaterial({
+    color: 0x334155,
+    roughness: 0.45,
+    metalness: 0.65,
+  });
+  const crateMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85 });
+  const neonMat = new THREE.MeshStandardMaterial({
+    color: 0x4ade80,
+    emissive: 0x22c55e,
+    emissiveIntensity: 1.4,
+  });
+
+  // Underground garage bunker
+  const garage = new THREE.Mesh(new THREE.BoxGeometry(7.2, 3.6, 5.4), brickMat);
+  garage.position.set(0, 1.8, 0);
+  garage.castShadow = true;
+  garage.receiveShadow = true;
+  group.add(garage);
+
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(7.7, 0.28, 5.9), steelMat);
+  roof.position.set(0, 3.72, 0);
+  roof.castShadow = true;
+  group.add(roof);
+
+  const door = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.5, 0.18), steelMat);
+  door.position.set(-1.1, 1.25, 2.7);
+  group.add(door);
+
+  const neonBar = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.12, 0.12), neonMat);
+  neonBar.position.set(0, 3.35, 2.8);
+  group.add(neonBar);
+
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.8, 1.35),
+    new THREE.MeshStandardMaterial({
+      map: signTex,
+      emissive: 0x16a34a,
+      emissiveIntensity: 0.3,
+      roughness: 0.4,
+    })
+  );
+  sign.position.set(0, 4.55, 2.5);
+  group.add(sign);
+
+  // Stacked barrels & crates
+  const barrelMat = new THREE.MeshStandardMaterial({
+    color: 0x15803d,
+    roughness: 0.4,
+    metalness: 0.5,
+  });
+  [2.2, 2.95].forEach((bx) => {
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.92, 14), barrelMat);
+    barrel.position.set(bx, 0.46, 3.15);
+    barrel.castShadow = true;
+    group.add(barrel);
+  });
+  const crate = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 1.1), crateMat);
+  crate.position.set(-2.9, 0.45, 3.1);
+  crate.castShadow = true;
+  group.add(crate);
+
+  // Petrovich boss character standing at the entrance
+  const petrovich = new THREE.Group();
+  petrovich.position.set(0.95, 0, 3.35);
+
+  const leatherMat = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.38 });
+  const trousersMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.85 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xe6b595, roughness: 0.65 });
+
+  [-0.12, 0.12].forEach((lx) => {
+    const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.62, 6, 10), trousersMat);
+    leg.position.set(lx, 0.42, 0);
+    leg.castShadow = true;
+    petrovich.add(leg);
+  });
+
+  const jacket = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.48, 8, 12), leatherMat);
+  jacket.scale.set(1.1, 1, 0.78);
+  jacket.position.y = 1.15;
+  jacket.castShadow = true;
+  petrovich.add(jacket);
+
+  const petrovichHead = new THREE.Group();
+  petrovichHead.position.set(0, 1.56, 0.02);
+  petrovich.add(petrovichHead);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 14), skinMat);
+  head.position.y = 0.1;
+  petrovichHead.add(head);
+
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.2, 0.14, 14), leatherMat);
+  cap.position.y = 0.22;
+  petrovichHead.add(cap);
+
+  const shades = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.06), leatherMat);
+  shades.position.set(0, 0.12, 0.165);
+  petrovichHead.add(shades);
+
+  const moustache = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, 0.035, 0.04),
+    new THREE.MeshStandardMaterial({ color: 0x52525b, roughness: 0.8 })
+  );
+  moustache.position.set(0, 0.05, 0.175);
+  petrovichHead.add(moustache);
+
+  const petrovichArm = new THREE.Group();
+  petrovichArm.position.set(-0.28, 1.35, 0);
+  const armMesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.46, 6, 8), leatherMat);
+  armMesh.position.y = -0.24;
+  petrovichArm.add(armMesh);
+  petrovich.add(petrovichArm);
+
+  const rightArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, 0.46, 6, 8), leatherMat);
+  rightArm.position.set(0.28, 1.11, 0);
+  petrovich.add(rightArm);
+
+  group.add(petrovich);
+
+  return {
+    group,
+    petrovichHead,
+    petrovichArm,
+    interactPoint: new THREE.Vector3(25.2, 0, -21.0),
+  };
+}
+
+export interface DistrictShopRig {
+  group: THREE.Group;
+  interactPoint: THREE.Vector3;
+}
+
+export function buildDistrictShop(
+  woodTex: THREE.Texture,
+  signTex: THREE.Texture
+): DistrictShopRig {
+  const group = new THREE.Group();
+  group.position.set(-24, 0, 23);
+  group.rotation.y = Math.PI * 0.78;
+
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.6 });
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.45 });
+  const glassMat = new THREE.MeshPhysicalMaterial({
+    color: 0xbae6fd,
+    emissive: 0xfef08a,
+    emissiveIntensity: 0.25,
+    roughness: 0.12,
+    transparent: true,
+    opacity: 0.75,
+  });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(7.0, 3.5, 4.4), wallMat);
+  body.position.set(0, 1.75, 0);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  const fascia = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.7, 4.8), trimMat);
+  fascia.position.set(0, 3.65, 0);
+  group.add(fascia);
+
+  const windowPane = new THREE.Mesh(new THREE.BoxGeometry(4.8, 2.1, 0.14), glassMat);
+  windowPane.position.set(0, 1.45, 2.22);
+  group.add(windowPane);
+
+  const counter = new THREE.Mesh(
+    new THREE.BoxGeometry(5.2, 0.22, 0.9),
+    new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.75 })
+  );
+  counter.position.set(0, 0.95, 2.55);
+  group.add(counter);
+
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(6.2, 1.35),
+    new THREE.MeshStandardMaterial({
+      map: signTex,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.28,
+      roughness: 0.38,
+    })
+  );
+  sign.position.set(0, 4.6, 2.45);
+  group.add(sign);
+
+  return {
+    group,
+    interactPoint: new THREE.Vector3(-21.8, 0, 20.4),
+  };
+}
+
 export interface BowlingPinActor {
   mesh: THREE.Group;
   pos: THREE.Vector3;
@@ -755,7 +1304,6 @@ export function buildBowlingAlley(
   });
   const railMat = new THREE.MeshStandardMaterial({ color: 0x7c2d12, roughness: 0.7 });
 
-  // 18-meter polished bowling promenade
   const laneDeck = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.14, 19.0), polishedWoodMat);
   laneDeck.position.set(0, 0.07, 9);
   laneDeck.receiveShadow = true;
@@ -768,7 +1316,6 @@ export function buildBowlingAlley(
     root.add(rail);
   });
 
-  // Overhead Bowling Arch positioned ABOVE eye level so view is 100% clear
   const postGeo = new THREE.BoxGeometry(0.24, 4.2, 0.24);
   [-2.05, 2.05].forEach((px) => {
     const p = new THREE.Mesh(postGeo, railMat);
@@ -788,7 +1335,7 @@ export function buildBowlingAlley(
   signMesh.position.set(0, 3.85, 4.5);
   root.add(signMesh);
 
-  // Wooden Park Bench on the LEFT side of the foul line facing +X (never blocks camera!)
+  // Park Bench on the LEFT side of the foul line facing +X
   const bench = new THREE.Group();
   bench.position.set(-2.95, 0, 1.4);
   bench.rotation.y = Math.PI / 2;
@@ -801,60 +1348,24 @@ export function buildBowlingAlley(
   bench.add(benchBack);
   root.add(bench);
 
+  // Realistic human sitting babushkas on the bench!
   const benchBabushkas: THREE.Group[] = [];
   const scarfColors = ['#B91C1C', '#6D28D9', '#047857'];
   const coatColors = ['#4F46E5', '#7C3AED', '#0F766E'];
 
   for (let i = 0; i < 3; i++) {
-    const sitter = new THREE.Group();
-    sitter.position.set(-2.95, 0.58, 0.45 + i * 0.95);
-    sitter.rotation.y = Math.PI / 2;
-
-    const torso = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.22, 0.27, 0.55, 12),
-      new THREE.MeshStandardMaterial({ color: coatColors[i], roughness: 0.8 })
+    const rig = buildHumanBabushkaRig(
+      coatColors[i],
+      scarfColors[i],
+      babushkaTextures[i % babushkaTextures.length],
+      true
     );
-    torso.position.y = 0.28;
-    torso.castShadow = true;
-    sitter.add(torso);
-
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.23, 14, 12),
-      new THREE.MeshStandardMaterial({ color: '#F2C6AA', roughness: 0.65 })
-    );
-    head.position.y = 0.74;
-    sitter.add(head);
-
-    const scarf = new THREE.Mesh(
-      new THREE.SphereGeometry(0.25, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.72),
-      new THREE.MeshStandardMaterial({ color: scarfColors[i], roughness: 0.75 })
-    );
-    scarf.position.set(0, 0.77, -0.02);
-    scarf.rotation.x = -0.25;
-    sitter.add(scarf);
-
-    const faceTex = babushkaTextures[i % babushkaTextures.length];
-    const face = new THREE.Mesh(
-      new THREE.CircleGeometry(0.22, 20),
-      new THREE.MeshStandardMaterial({ map: faceTex, roughness: 0.5 })
-    );
-    face.position.set(0, 0.74, 0.22);
-    sitter.add(face);
-
-    const legGeo = new THREE.CylinderGeometry(0.08, 0.09, 0.42, 8);
-    const bootMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.6 });
-    [-0.1, 0.1].forEach((lx) => {
-      const leg = new THREE.Mesh(legGeo, bootMat);
-      leg.position.set(lx, -0.1, 0.24);
-      leg.rotation.x = -0.45;
-      sitter.add(leg);
-    });
-
-    root.add(sitter);
-    benchBabushkas.push(sitter);
+    rig.root.position.set(-2.95, 0.02, 0.45 + i * 0.95);
+    rig.root.rotation.y = Math.PI / 2;
+    root.add(rig.root);
+    benchBabushkas.push(rig.root);
   }
 
-  // Proper Y-pivoted Aiming Sightline Group pointing along +Z!
   const aimGroup = new THREE.Group();
   aimGroup.position.set(0, 0.2, 0.5);
   aimGroup.visible = false;
@@ -874,7 +1385,6 @@ export function buildBowlingAlley(
   aimGroup.add(sightCone);
   root.add(aimGroup);
 
-  // Rolling Curled Bowling Babushka Ball
   const bowlingBall = new THREE.Group();
   const ballBody = new THREE.Mesh(
     new THREE.SphereGeometry(0.5, 18, 16),
@@ -898,7 +1408,6 @@ export function buildBowlingAlley(
   bowlingBall.visible = false;
   root.add(bowlingBall);
 
-  // 6 Giant Baltika 0 Bowling Pins
   const pins: BowlingPinActor[] = [];
   const pinCanMat = new THREE.MeshStandardMaterial({
     map: baltikaTex,
@@ -955,7 +1464,7 @@ export function buildBowlingAlley(
   };
 }
 
-export type PickupKind = 'gazyava' | 'kiriki' | 'golden_pie';
+export type PickupKind = 'gazyava' | 'kiriki' | 'golden_pie' | 'money' | 'stash';
 
 export function buildPickupMesh(
   kind: PickupKind,
@@ -988,6 +1497,30 @@ export function buildPickupMesh(
     );
     pack.position.y = 0.55;
     g.add(pack);
+  } else if (kind === 'money') {
+    const stack = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, 0.18, 0.24),
+      new THREE.MeshStandardMaterial({
+        color: 0x22c55e,
+        emissive: 0x16a34a,
+        emissiveIntensity: 0.45,
+        roughness: 0.35,
+      })
+    );
+    stack.position.y = 0.52;
+    g.add(stack);
+  } else if (kind === 'stash') {
+    const parcel = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(0.22, 0),
+      new THREE.MeshStandardMaterial({
+        color: 0xa855f7,
+        emissive: 0x9333ea,
+        emissiveIntensity: 0.65,
+        roughness: 0.3,
+      })
+    );
+    parcel.position.y = 0.52;
+    g.add(parcel);
   } else {
     const pie = new THREE.Mesh(
       new THREE.SphereGeometry(0.24, 14, 12),
@@ -1003,17 +1536,55 @@ export function buildPickupMesh(
     g.add(pie);
   }
 
+  const ringColor =
+    kind === 'gazyava'
+      ? 0x34d399
+      : kind === 'money'
+      ? 0x4ade80
+      : kind === 'stash'
+      ? 0xc084fc
+      : 0xfbbf24;
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.34, 0.44, 20),
     new THREE.MeshBasicMaterial({
-      color: kind === 'gazyava' ? 0x34d399 : 0xfbbf24,
+      color: ringColor,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.8,
     })
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 0.06;
+  g.add(ring);
+  return g;
+}
+
+export function buildDropoffBeaconMesh(): THREE.Group {
+  const g = new THREE.Group();
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.55, 0.55, 16, 16, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0x22c55e,
+      transparent: true,
+      opacity: 0.25,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  beam.position.y = 8;
+  g.add(beam);
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(1.1, 1.45, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x4ade80,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+    })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.08;
   g.add(ring);
   return g;
 }
@@ -1144,8 +1715,34 @@ export function buildFirstPersonPirozhokViewModel(): {
   return { root, pirozhokMesh, fillingSpot };
 }
 
-function buildParkedZhiguli(colorHex: number): THREE.Group {
+export interface DrivableCarActor {
+  id: string;
+  name: string;
+  group: THREE.Group;
+  wheels: THREE.Mesh[];
+  frontSteerPivots: THREE.Group[];
+  driverMesh: THREE.Group;
+  passengerMount: THREE.Group;
+  pos: THREE.Vector3;
+  heading: number;
+  speed: number;
+  steerAngle: number;
+  passengerBabushkaId: string | null;
+  rideDistAccum: number;
+}
+
+export function buildDrivableZhiguli(
+  id: string,
+  name: string,
+  colorHex: number,
+  startX: number,
+  startZ: number,
+  startRot: number
+): DrivableCarActor {
   const car = new THREE.Group();
+  car.position.set(startX, 0, startZ);
+  car.rotation.y = startRot;
+
   const bodyMat = new THREE.MeshPhysicalMaterial({
     color: colorHex,
     roughness: 0.22,
@@ -1154,11 +1751,14 @@ function buildParkedZhiguli(colorHex: number): THREE.Group {
     clearcoatRoughness: 0.12,
   });
   const glassMat = new THREE.MeshPhysicalMaterial({
-    color: 0x1e293b,
+    color: 0x93c5fd,
     roughness: 0.08,
-    metalness: 0.2,
-    clearcoat: 1.0,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.34,
   });
+  const interiorMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.85 });
+  const seatMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.8 });
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
   const chromeMat = new THREE.MeshStandardMaterial({
     color: 0xe2e8f0,
@@ -1166,28 +1766,43 @@ function buildParkedZhiguli(colorHex: number): THREE.Group {
     metalness: 0.95,
   });
 
-  const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.65, 4.1), bodyMat);
-  chassis.position.y = 0.62;
-  chassis.castShadow = true;
-  car.add(chassis);
+  // Lower hull + engine hood + trunk
+  const lowerBody = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.58, 4.16), bodyMat);
+  lowerBody.position.y = 0.56;
+  lowerBody.castShadow = true;
+  car.add(lowerBody);
 
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.58, 2.1), glassMat);
-  cabin.position.set(0, 1.2, -0.1);
-  cabin.castShadow = true;
-  car.add(cabin);
+  // Seats visible inside transparent cabin
+  [-0.42, 0.42].forEach((sx) => {
+    const seatBack = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.58, 0.14), seatMat);
+    seatBack.position.set(sx, 0.96, -0.35);
+    car.add(seatBack);
+  });
 
-  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.58, 0.08, 2.0), bodyMat);
-  roof.position.set(0, 1.51, -0.1);
+  // Steering wheel on left driver side (+X in +Z forward local)
+  const steeringWheel = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.025, 8, 16), interiorMat);
+  steeringWheel.position.set(0.42, 1.02, 0.52);
+  steeringWheel.rotation.x = 0.45;
+  car.add(steeringWheel);
+
+  // Tinted see-through cabin & roof pillars
+  const cabinGlass = new THREE.Mesh(new THREE.BoxGeometry(1.58, 0.56, 2.0), glassMat);
+  cabinGlass.position.set(0, 1.15, -0.15);
+  car.add(cabinGlass);
+
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.08, 2.02), bodyMat);
+  roof.position.set(0, 1.46, -0.15);
+  roof.castShadow = true;
   car.add(roof);
 
   // Chrome bumpers
-  [2.1, -2.1].forEach((bz) => {
-    const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.14, 0.14), chromeMat);
-    bumper.position.set(0, 0.42, bz);
+  [2.12, -2.12].forEach((bz) => {
+    const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.14, 0.14), chromeMat);
+    bumper.position.set(0, 0.4, bz);
     car.add(bumper);
   });
 
-  // Glowing headlights & taillights
+  // Headlights & taillights
   const headMat = new THREE.MeshStandardMaterial({
     color: 0xfef9c3,
     emissive: 0xfde047,
@@ -1200,29 +1815,73 @@ function buildParkedZhiguli(colorHex: number): THREE.Group {
   });
   [-0.6, 0.6].forEach((lx) => {
     const hl = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.16, 0.06), headMat);
-    hl.position.set(lx, 0.68, 2.06);
+    hl.position.set(lx, 0.64, 2.1);
     car.add(hl);
     const tl = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.06), tailMat);
-    tl.position.set(lx, 0.68, -2.06);
+    tl.position.set(lx, 0.64, -2.1);
     car.add(tl);
   });
 
-  // 4 Wheels
-  const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 14);
-  [
-    [-0.88, 0.34, 1.25],
-    [0.88, 0.34, 1.25],
-    [-0.88, 0.34, -1.25],
-    [0.88, 0.34, -1.25],
-  ].forEach(([wx, wy, wz]) => {
+  // Driver torso/head visible when occupied
+  const driverMesh = new THREE.Group();
+  driverMesh.position.set(0.42, 0.72, -0.12);
+  const dTorso = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.16, 0.32, 6, 10),
+    new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.75 })
+  );
+  dTorso.position.y = 0.24;
+  driverMesh.add(dTorso);
+  const dHead = new THREE.Mesh(
+    new THREE.SphereGeometry(0.15, 12, 10),
+    new THREE.MeshStandardMaterial({ color: 0xeec3a5, roughness: 0.65 })
+  );
+  dHead.position.y = 0.56;
+  driverMesh.add(dHead);
+  driverMesh.visible = false;
+  car.add(driverMesh);
+
+  // Passenger seat mount for Babushka
+  const passengerMount = new THREE.Group();
+  passengerMount.position.set(-0.42, 0.25, -0.08);
+  car.add(passengerMount);
+
+  const wheels: THREE.Mesh[] = [];
+  const frontSteerPivots: THREE.Group[] = [];
+  const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.24, 16);
+
+  const wheelSpecs: [number, number, number, boolean][] = [
+    [-0.9, 0.34, 1.28, true],
+    [0.9, 0.34, 1.28, true],
+    [-0.9, 0.34, -1.28, false],
+    [0.9, 0.34, -1.28, false],
+  ];
+  wheelSpecs.forEach(([wx, wy, wz, isFront]) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(wx, wy, wz);
     const w = new THREE.Mesh(wheelGeo, wheelMat);
     w.rotation.z = Math.PI / 2;
-    w.position.set(wx, wy, wz);
     w.castShadow = true;
-    car.add(w);
+    pivot.add(w);
+    car.add(pivot);
+    wheels.push(w);
+    if (isFront) frontSteerPivots.push(pivot);
   });
 
-  return car;
+  return {
+    id,
+    name,
+    group: car,
+    wheels,
+    frontSteerPivots,
+    driverMesh,
+    passengerMount,
+    pos: new THREE.Vector3(startX, 0, startZ),
+    heading: startRot,
+    speed: 0,
+    steerAngle: 0,
+    passengerBabushkaId: null,
+    rideDistAccum: 0,
+  };
 }
 
 export function buildOpenWorldDistrict(
@@ -1232,8 +1891,7 @@ export function buildOpenWorldDistrict(
   sidewalkTex: THREE.Texture,
   woodTex: THREE.Texture,
   maxAnisotropy: number
-): void {
-  // Extended grassy open terrain
+): DrivableCarActor[] {
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(340, 340),
     new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.92, metalness: 0 })
@@ -1242,7 +1900,6 @@ export function buildOpenWorldDistrict(
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Asphalt Boulevard Cross-Roads + Town Ring
   const asphaltMat = new THREE.MeshPhysicalMaterial({
     map: asphalt.map,
     roughnessMap: asphalt.roughnessMap,
@@ -1264,7 +1921,6 @@ export function buildOpenWorldDistrict(
   roadEW.receiveShadow = true;
   scene.add(roadEW);
 
-  // Central Paved Sidewalk Plaza
   const sidewalkMat = new THREE.MeshStandardMaterial({
     map: sidewalkTex,
     roughness: 0.82,
@@ -1274,7 +1930,6 @@ export function buildOpenWorldDistrict(
   plaza.receiveShadow = true;
   scene.add(plaza);
 
-  // Dashed road markings
   const stripeMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.6 });
   for (let d = -66; d <= 66; d += 7) {
     if (Math.abs(d) < 23) continue;
@@ -1289,13 +1944,12 @@ export function buildOpenWorldDistrict(
     scene.add(s2);
   }
 
-  // Multi-story Soviet Panelkas & Shops framing the open world blocks
   const panelkaColors = ['#D6CFC4', '#C4B5A5', '#B9C4CC', '#D8B4A0'];
   const buildings: [number, number, number, number, number, number][] = [
-    [-38, -38, 22, 16, 12, 0],
-    [38, -38, 22, 19, 12, 0],
-    [-40, 38, 24, 15, 12, 0],
-    [40, 38, 22, 21, 13, 0],
+    [-42, -40, 22, 16, 12, 0],
+    [42, -40, 22, 19, 12, 0],
+    [-42, 40, 24, 15, 12, 0],
+    [42, 40, 22, 21, 13, 0],
     [-64, 0, 14, 14, 24, 1],
     [64, 0, 14, 16, 24, 2],
     [0, 62, 26, 17, 13, 3],
@@ -1330,7 +1984,6 @@ export function buildOpenWorldDistrict(
     scene.add(bldg);
   });
 
-  // Streetlamps with glowing bulbs along the boulevard
   const poleMat = new THREE.MeshStandardMaterial({
     color: 0x1f2937,
     roughness: 0.4,
@@ -1339,7 +1992,7 @@ export function buildOpenWorldDistrict(
   const bulbMat = new THREE.MeshStandardMaterial({
     color: 0xfef3c7,
     emissive: 0xfbbf24,
-    emissiveIntensity: 2.4,
+    emissiveIntensity: 2.2,
   });
   const lampCoords: [number, number][] = [
     [-9, -18],
@@ -1365,21 +2018,20 @@ export function buildOpenWorldDistrict(
     scene.add(lamp);
   });
 
-  // Parked Zhiguli Sedans along street curbs
-  const carSpecs: [number, number, number, number][] = [
-    [9.2, -29, 0.15, 0xb91c1c],
-    [-9.2, 31, Math.PI - 0.1, 0x1d4ed8],
-    [32, 9.2, Math.PI / 2, 0xfef3c7],
-    [-34, -10.5, -Math.PI / 2, 0x047857],
+  // 4 Stealable & Drivable Zhiguli Sedans
+  const carSpecs: [string, string, number, number, number, number][] = [
+    ['car_red', 'Вишнёвая Жига 2107', 0xb91c1c, 9.2, -29, 0.15],
+    ['car_blue', 'Синяя Семёрка', 0x1d4ed8, -9.2, 31, Math.PI - 0.1],
+    ['car_cream', 'Кремовая Классика', 0xfef3c7, 32, 9.2, Math.PI / 2],
+    ['car_green', 'Изумрудный Жигуль', 0x047857, -34, -10.5, -Math.PI / 2],
   ];
-  carSpecs.forEach(([cx, cz, rot, col]) => {
-    const car = buildParkedZhiguli(col);
-    car.position.set(cx, 0, cz);
-    car.rotation.y = rot;
-    scene.add(car);
+  const cars: DrivableCarActor[] = carSpecs.map(([id, name, col, cx, cz, rot]) => {
+    const car = buildDrivableZhiguli(id, name, col, cx, cz, rot);
+    scene.add(car.group);
+    return car;
   });
 
-  // Low Wooden & Brick Park Perimeter beyond ±58m + Instanced Trees
+  // Instanced Trees around perimeter
   const treeCount = 64;
   const trunkMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.9 });
   const foliageMat = new THREE.MeshStandardMaterial({ color: 0x3b7a32, roughness: 0.82 });
@@ -1398,10 +2050,9 @@ export function buildOpenWorldDistrict(
   const tint = new THREE.Color();
   for (let i = 0; i < treeCount; i++) {
     const angle = (i / treeCount) * Math.PI * 2;
-    const dist = (i % 2 === 0 ? 28 : ARENA_HALF_SIZE + 10) + (i % 5) * 4;
+    const dist = (i % 2 === 0 ? 30 : ARENA_HALF_SIZE + 10) + (i % 5) * 4;
     let tx = Math.cos(angle) * dist;
     let tz = Math.sin(angle) * dist;
-    // Keep roads clear
     if (Math.abs(tx) < 10) tx += tx >= 0 ? 11 : -11;
     if (Math.abs(tz) < 10) tz += tz >= 0 ? 11 : -11;
 
@@ -1422,4 +2073,6 @@ export function buildOpenWorldDistrict(
   crowns.computeBoundingSphere();
   scene.add(trunks);
   scene.add(crowns);
+
+  return cars;
 }

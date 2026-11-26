@@ -3,6 +3,8 @@ export type GameState =
   | 'PLAYING'
   | 'MINIGAME'
   | 'BOWLING'
+  | 'PETROVICH'
+  | 'SHOP'
   | 'PAUSED'
   | 'GAME_OVER';
 
@@ -15,6 +17,37 @@ export type DistrictEventType =
   | 'PITBIKE_TURBO'
   | 'DOUBLE_DROOL'
   | 'GOLDEN_BAKERY';
+
+export type ShopItemId =
+  | 'seeds'
+  | 'spare_pies'
+  | 'energy_drink'
+  | 'rolling_pin'
+  | 'fake_license'
+  | 'loot_magnet'
+  | 'petrovich_share'
+  | 'golden_launcher'
+  | 'diamond_fur_coat'
+  | 'district_crown';
+
+export interface ShopItemDef {
+  id: ShopItemId;
+  name: string;
+  tierLabel: string;
+  description: string;
+  costMoney: number;
+  costGazyava: number;
+  costKiriki: number;
+  repeatable: boolean;
+  maxStack?: number;
+}
+
+export interface PetrovichContract {
+  active: boolean;
+  delivered: number;
+  total: number;
+  rewardMoney: number;
+}
 
 export interface FillingInfo {
   id: FillingType;
@@ -63,16 +96,35 @@ export interface RewardResult {
 }
 
 export interface TargetPrompt {
-  kind: 'babushka' | 'bakery' | 'bowling';
+  kind:
+    | 'babushka'
+    | 'bakery'
+    | 'bowling'
+    | 'petrovich'
+    | 'shop'
+    | 'car'
+    | 'car_board_babushka'
+    | 'car_exit'
+    | 'stash'
+    | 'dropoff';
   babushka?: BabushkaProfile;
+  carId?: string;
   label: string;
   canInteract: boolean;
 }
 
 export interface BowlingHudState {
-  aimAngle: number; // -1 to 1
+  aimAngle: number;
   phase: 'AIMING' | 'ROLLING' | 'RESULT';
   pinsKnocked: number;
   totalPins: number;
   throwsLeft: number;
+}
+
+export interface DrivingHudState {
+  inCar: boolean;
+  carName: string;
+  speedKmh: number;
+  passengerName: string | null;
+  rideDistanceMeters: number;
 }

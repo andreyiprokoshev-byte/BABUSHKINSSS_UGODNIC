@@ -1,4 +1,4 @@
-import { BabushkaProfile, FillingInfo, FillingType } from '../types/game';
+import { BabushkaProfile, FillingInfo, FillingType, ShopItemDef } from '../types/game';
 import zinaImg from '../assets/images/babushka_meme_zina_1795730784996.jpg';
 import lyudaImg from '../assets/images/babushka_meme_lyuda_1795730787114.jpg';
 import tomaImg from '../assets/images/babushka_meme_toma_1795730786812.jpg';
@@ -192,4 +192,128 @@ export const PITBIKER_SHOUTS = [
   'БАЛТИКА НУЛЁВКА — ТОПЛИВО РАЙОНА!',
   'ЩАС КАК ПРОГАЗУЮ ПО ПРОСПЕКТУ!',
   'ВОЛОДЯ, НЕ ПУТАЙСЯ ПОД КОЛЁСАМИ!',
+];
+
+export const ZAKLADCHIK_LINES = [
+  'Тихо-тихо, под кустик положил...',
+  'Главное — чтобы бабки с лавки не спалили!',
+  'Петрович сказал: закладка должна лежать ровно!',
+  'Опа, кто-то палит, сваливаем дворами!',
+];
+
+export const PETROVICH_LINES = [
+  'Здорово, Володя! Есть дело на районе — развезёшь товар по точкам?',
+  'Видишь этих суетливых в капюшонах? Тащи их свёртки сюда — оплачу кэшем!',
+  'Угоняй Жигуль и гони по точкам, тогда и бабки при деньгах будут!',
+];
+
+export const CAR_RIDE_LINES = [
+  'Ой Володя! Жми на газ, ветер в платочке свистит!',
+  'Вот это карета! Лучше всякого питбайка!',
+  'Держи на бензин, сынок, прокати ещё кружок по проспекту!',
+  'Смотри, как закладчики от нас разбегаются!',
+];
+
+export const SHOP_ITEMS: ShopItemDef[] = [
+  {
+    id: 'spare_pies',
+    name: 'Пакет горячих пирожков',
+    tierLabel: 'Мелочь',
+    description: '+2 пирожка каждого вида прямо на поднос, чтобы не бегать в пекарню.',
+    costMoney: 0,
+    costGazyava: 3,
+    costKiriki: 0,
+    repeatable: true,
+  },
+  {
+    id: 'seeds',
+    name: 'Кулёк семечек от сглаза',
+    tierLabel: 'Мелочь',
+    description: '+15% к скорости бега навсегда (можно купить до 3 раз).',
+    costMoney: 0,
+    costGazyava: 0,
+    costKiriki: 5,
+    repeatable: true,
+    maxStack: 3,
+  },
+  {
+    id: 'energy_drink',
+    name: 'Энергетик «Балтика Турбо»',
+    tierLabel: 'Дёшево',
+    description: 'Включает Турбо-бег на 20 секунд и защищает от столкновений на районе!',
+    costMoney: 250,
+    costGazyava: 0,
+    costKiriki: 0,
+    repeatable: true,
+  },
+  {
+    id: 'rolling_pin',
+    name: 'Золотая скалка тёти Любы',
+    tierLabel: 'Средний класс',
+    description: 'Навсегда ускоряет угощение бабушек пирожками по губам в 2 раза.',
+    costMoney: 0,
+    costGazyava: 10,
+    costKiriki: 15,
+    repeatable: false,
+  },
+  {
+    id: 'fake_license',
+    name: 'Липовые права категории Б',
+    tierLabel: 'Средний класс',
+    description: 'Угнанные Жигули едут на 40% быстрее и приносят больше денег за катание бабушек.',
+    costMoney: 1200,
+    costGazyava: 0,
+    costKiriki: 0,
+    repeatable: false,
+  },
+  {
+    id: 'loot_magnet',
+    name: 'Магнит для закладок и лута',
+    tierLabel: 'Средний класс',
+    description: 'Радиус подбора денег, закладок, газявы и кириков увеличен в 2.5 раза.',
+    costMoney: 800,
+    costGazyava: 18,
+    costKiriki: 0,
+    repeatable: false,
+  },
+  {
+    id: 'golden_launcher',
+    name: 'Золотой пирожкомёт',
+    tierLabel: 'Дорого',
+    description: 'Бросок пирожка на [Q / ПКМ] больше не тратит пирожки с подноса!',
+    costMoney: 3500,
+    costGazyava: 25,
+    costKiriki: 0,
+    repeatable: false,
+  },
+  {
+    id: 'petrovich_share',
+    name: 'Доля в фирме Петровича',
+    tierLabel: 'Дорого',
+    description: 'Пассивный доход +200 ₽ каждые 8 секунд прямо в карман.',
+    costMoney: 4500,
+    costGazyava: 0,
+    costKiriki: 25,
+    repeatable: false,
+  },
+  {
+    id: 'diamond_fur_coat',
+    name: 'Норковая шуба для всех бабушек',
+    tierLabel: 'Люкс',
+    description: 'Все бабушки в восторге: награда за угощение и поездки увеличена в 3 раза!',
+    costMoney: 12000,
+    costGazyava: 45,
+    costKiriki: 45,
+    repeatable: false,
+  },
+  {
+    id: 'district_crown',
+    name: 'Золотая корона «Король Района»',
+    tierLabel: 'Легенда',
+    description: 'Абсолютный статус легенды: 5× множитель на все доходы и вечное уважение.',
+    costMoney: 25000,
+    costGazyava: 75,
+    costKiriki: 75,
+    repeatable: false,
+  },
 ];

@@ -343,6 +343,98 @@ class SoundEngine {
     osc.start(now);
     osc.stop(now + 0.25);
   }
+
+  public playCash(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    [880, 1174.66, 1396.91].forEach((freq, i) => {
+      const now = ctx.currentTime + i * 0.05;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.11, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.17);
+    });
+  }
+
+  public playBuy(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    [523.25, 659.25, 1046.5].forEach((freq, i) => {
+      const now = ctx.currentTime + i * 0.06;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.23);
+    });
+  }
+
+  public playCarStart(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(65, now);
+    osc.frequency.exponentialRampToValueAtTime(160, now + 0.28);
+    osc.frequency.exponentialRampToValueAtTime(85, now + 0.52);
+    gain.gain.setValueAtTime(0.14, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.56);
+  }
+
+  public playCarHorn(): void {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    [392, 493.88].forEach((freq) => {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.075, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.25);
+    });
+  }
+
+  public playCarEngineTick(speedRatio: number): void {
+    const nowMs = performance.now();
+    if (nowMs - this.lastEngineTickAt < 85) return;
+    this.lastEngineTickAt = nowMs;
+
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(52 + speedRatio * 75, now);
+    gain.gain.setValueAtTime(0.035 + speedRatio * 0.03, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.085);
+  }
 }
 
 export const soundEngine = new SoundEngine();

@@ -9,6 +9,7 @@ interface LipBrushMinigameProps {
   craving: FillingType;
   inventory: PirozhokInventory;
   kirikiBuffActive: boolean;
+  rollingPinOwned?: boolean;
   onComplete: (result: RewardResult) => void;
   onCancel: () => void;
 }
@@ -36,6 +37,7 @@ export const LipBrushMinigame: React.FC<LipBrushMinigameProps> = ({
   craving,
   inventory,
   kirikiBuffActive,
+  rollingPinOwned = false,
   onComplete,
   onCancel,
 }) => {
@@ -247,7 +249,8 @@ export const LipBrushMinigame: React.FC<LipBrushMinigameProps> = ({
 
       if (touching && !completedRef.current && moveDist > 0.6) {
         const speedBoost = Math.min(1.8, Math.hypot(vx, vy) / 260);
-        const gain = moveDist * 0.16 * (0.65 + speedBoost * 0.45);
+        const toolMult = rollingPinOwned ? 2.0 : 1.0;
+        const gain = moveDist * 0.16 * (0.65 + speedBoost * 0.45) * toolMult;
         const nextDelight = Math.min(100, delightRef.current + gain);
         delightRef.current = nextDelight;
         setDelight(nextDelight);
