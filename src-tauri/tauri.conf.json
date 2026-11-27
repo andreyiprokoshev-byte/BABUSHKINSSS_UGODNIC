@@ -1,38 +1,30 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Pirozhkovy Dvor 3D",
-  "identifier": "io.github.andreyiprokoshev-byte.pirozhkovy-dvor",
+  "productName": "Пирожковый Двор 3D",
+  "version": "0.1.0",
+  "identifier": "com.babushkinsss.ugodnic",
   "build": {
-    "beforeBuildCommand": "bun run build",
-    "beforeDevCommand": "bun run vite --host 127.0.0.1 --port 3000 --strictPort",
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npx vite --host 127.0.0.1 --port 3000 --strictPort",
     "devUrl": "http://127.0.0.1:3000",
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "label": "main",
-        "create": false,
-        "title": "Пирожковый Двор 3D",
-        "width": 1240,
-        "height": 780,
-        "minWidth": 800,
-        "minHeight": 600,
-        "center": true
-      }
-    ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'",
-      "devCsp": null
+      "csp": "default-src 'self'; script-src 'self' https://www.youtube.com https://s.ytimg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://i.ytimg.com; font-src 'self' data:; media-src 'self' blob:; frame-src https://www.youtube.com https://www.youtube-nocookie.com; connect-src 'self' https://www.youtube.com https://www.youtube-nocookie.com"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "nsis"],
-    "icon": ["icons/icon.png", "icons/icon.ico"],
-    "publisher": "andreyiprokoshev-byte",
-    "category": "Game",
-    "linux": { "deb": { "depends": ["libc6 (>= 2.39)"] } },
-    "shortDescription": "Пирожковый Двор 3D"
+    "targets": ["nsis", "deb"],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "languages": ["Russian", "English"]
+      }
+    }
   }
 }

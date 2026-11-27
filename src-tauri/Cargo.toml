@@ -3,6 +3,7 @@ name = "pirozhkovy-dvor"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
+description = "Пирожковый Двор 3D — аркада с открытым миром, бабушками, машинами и магазином"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

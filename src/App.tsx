@@ -760,14 +760,25 @@ export default function App() {
             </button>
 
             {(gameState === 'PLAYING' || gameState === 'BOWLING') && (
-              <button
-                type="button"
-                onClick={() => setGameState('PAUSED')}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#252A34] hover:bg-[#313845] text-xs font-semibold text-stone-200 transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <Pause className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">Пауза</span>
-              </button>
+              <>
+                {gameMode === 'ENDLESS' && (
+                  <button
+                    type="button"
+                    onClick={() => setGameState('GAME_OVER')}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#252A34] hover:bg-amber-600 text-xs font-semibold text-stone-200 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    <span>Завершить</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setGameState('PAUSED')}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#252A34] hover:bg-[#313845] text-xs font-semibold text-stone-200 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <Pause className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">Пауза</span>
+                </button>
+              </>
             )}
           </div>
         </div>

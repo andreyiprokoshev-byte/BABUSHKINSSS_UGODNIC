@@ -198,8 +198,8 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [pointerLocked, setPointerLocked] = useState<boolean>(false);
-  const [webglUnavailable, setWebglUnavailable] = useState(false);
   const [contextLost, setContextLost] = useState<boolean>(false);
+  const [webglUnavailable, setWebglUnavailable] = useState<boolean>(false);
 
   const propsRef = useRef({
     isPlaying,
@@ -710,7 +710,11 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
         renderer.domElement.requestPointerLock
       ) {
         try {
-          renderer.domElement.requestPointerLock()?.catch(() => {});
+          (
+            renderer.domElement.requestPointerLock() as unknown as Promise<void> | undefined
+          )?.catch?.(() => {
+            // Drag look fallback
+          });
         } catch {
           // Drag look fallback
         }
@@ -1932,29 +1936,31 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     <div className="relative w-full h-full min-h-[420px] rounded-xl overflow-hidden border border-[#2F3540] bg-[#1E293B] select-none">
       <div ref={mountRef} className="w-full h-full" />
 
-      {isPlaying && !isBowling && !webglUnavailable && !contextLost && (
+      {isPlaying && !isBowling && !contextLost && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="w-2 h-2 rounded-full border-2 border-white/90 bg-black/40" />
         </div>
       )}
 
-      {isPlaying && !isBowling && !pointerLocked && !webglUnavailable && !contextLost && (
+      {isPlaying && !isBowling && !pointerLocked && !contextLost && (
         <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-md bg-[#16191D]/85 text-xs font-medium text-stone-200 whitespace-nowrap border border-white/10">
           Клик — обзор · WASD бег/руль · E действие/угон · Q/ПКМ бросок
         </div>
       )}
 
-      {webglUnavailable && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center" role="alert">
-          <p className="font-display text-lg font-bold">Не удалось запустить 3D</p>
-          <p className="text-sm text-stone-300">Для игры нужен WebGL 2. Проверьте графический драйвер и системный WebView.</p>
-        </div>
-      )}
-
-      {contextLost && (
+      {contextLost && !webglUnavailable && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#16191D] text-stone-200 p-6 text-center">
           <p className="font-display text-lg font-bold mb-1">Восстановление 3D-рендера…</p>
           <p className="text-xs text-stone-400">Подождите секунду, сцена обновляется.</p>
+        </div>
+      )}
+
+      {webglUnavailable && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#16191D] text-stone-200 p-6 text-center">
+          <p className="font-display text-lg font-bold mb-1">WebGL2 недоступен</p>
+          <p className="text-xs text-stone-400 max-w-md">
+            Не удалось запустить 3D-графику. Обновите драйвер видеокарты или среду Microsoft Edge WebView2.
+          </p>
         </div>
       )}
     </div>
