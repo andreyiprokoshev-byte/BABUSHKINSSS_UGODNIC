@@ -2,22 +2,35 @@ import * as THREE from 'three';
 import { BabushkaProfile } from '../types/game';
 import { ARENA_HALF_SIZE } from '../data/gameData';
 
+const districtSun = new THREE.Vector3(-0.54, 0.32, 0.78).normalize();
+
+export function getDistrictSunDirection(): THREE.Vector3 {
+  return districtSun.clone();
+}
+
+function textureRandom(seed: number): () => number {
+  return () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+}
+
 export function createGoldenSkyDome(): THREE.Mesh {
   const skyGeo = new THREE.SphereGeometry(185, 32, 24);
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     uniforms: {
-      topColor: { value: new THREE.Color(0x1e40af) },
-      midColor: { value: new THREE.Color(0x7c93d6) },
-      horizonColor: { value: new THREE.Color(0xfdba74) },
-      sunDir: { value: new THREE.Vector3(0.55, 0.28, 0.78).normalize() },
+      topColor: { value: new THREE.Color(0x25426c) },
+      midColor: { value: new THREE.Color(0x7794ba) },
+      horizonColor: { value: new THREE.Color(0xf1b98c) },
+      sunDir: { value: getDistrictSunDirection() },
     },
     vertexShader: `
-      varying vec3 vWorldPos;
+      varying vec3 vDirection;
       void main() {
         vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
+        vDirection = position;
         gl_Position = projectionMatrix * viewMatrix * wp;
       }
     `,
@@ -26,16 +39,37 @@ export function createGoldenSkyDome(): THREE.Mesh {
       uniform vec3 midColor;
       uniform vec3 horizonColor;
       uniform vec3 sunDir;
-      varying vec3 vWorldPos;
+      varying vec3 vDirection;
+      float hash(vec2 p) {
+        vec3 q = fract(vec3(p.xyx) * 0.1031);
+        q += dot(q, q.yzx + 33.33);
+        return fract((q.x + q.y) * q.z);
+      }
+      float noise(vec2 p) {
+        vec2 cell = floor(p);
+        vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(cell), hash(cell + vec2(1, 0)), f.x),
+                   mix(hash(cell + vec2(0, 1)), hash(cell + vec2(1, 1)), f.x), f.y);
+      }
       void main() {
-        vec3 dir = normalize(vWorldPos);
+        vec3 dir = normalize(vDirection);
         float h = clamp(dir.y, 0.0, 1.0);
         vec3 col = mix(horizonColor, midColor, smoothstep(0.0, 0.26, h));
         col = mix(col, topColor, smoothstep(0.22, 0.85, h));
         float sunAmt = max(dot(dir, sunDir), 0.0);
-        col += vec3(1.0, 0.82, 0.55) * pow(sunAmt, 24.0) * 0.75;
-        col += vec3(1.0, 0.95, 0.85) * pow(sunAmt, 240.0) * 1.4;
+        vec2 cloudUV = dir.xz / max(dir.y + 0.16, 0.16) * vec2(2.6, 5.0);
+        float layers = noise(cloudUV) * 0.62
+                     + noise(cloudUV * 2.2 + 8.0) * 0.27
+                     + noise(cloudUV * 4.5) * 0.11;
+        float clouds = smoothstep(0.47, 0.72, layers) * smoothstep(0.04, 0.22, h);
+        vec3 cloudColor = mix(vec3(0.32, 0.38, 0.52), vec3(1.24, 0.71, 0.39), pow(sunAmt, 3.0));
+        col = mix(col, cloudColor, clouds * 0.86);
+        col += vec3(1.0, 0.58, 0.28) * pow(sunAmt, 32.0) * 0.85;
+        col += vec3(1.0, 0.87, 0.62) * smoothstep(0.99936, 0.99955, sunAmt) * 6.0;
         gl_FragColor = vec4(col, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
   });
@@ -79,13 +113,14 @@ export function createAsphaltTextures(maxAnisotropy: number): {
   c.width = 512;
   c.height = 512;
   const ctx = c.getContext('2d')!;
-  ctx.fillStyle = '#252930';
+  const random = textureRandom(4108);
+  ctx.fillStyle = '#30343a';
   ctx.fillRect(0, 0, 512, 512);
 
   for (let i = 0; i < 9000; i++) {
-    const g = 30 + Math.floor(Math.random() * 24);
+    const g = 24 + Math.floor(random() * 47);
     ctx.fillStyle = `rgb(${g},${g + 2},${g + 6})`;
-    ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+    ctx.fillRect(random() * 512, random() * 512, 2, 2);
   }
 
   const rc = document.createElement('canvas');
@@ -95,16 +130,23 @@ export function createAsphaltTextures(maxAnisotropy: number): {
   rctx.fillStyle = '#C8C8C8';
   rctx.fillRect(0, 0, 512, 512);
   for (let i = 0; i < 16; i++) {
-    const px = Math.random() * 512;
-    const py = Math.random() * 512;
-    const rad = 28 + Math.random() * 64;
+    const px = random() * 512;
+    const py = random() * 512;
+    const rad = 28 + random() * 64;
     const grad = rctx.createRadialGradient(px, py, 4, px, py, rad);
-    grad.addColorStop(0, '#222222');
+    grad.addColorStop(0, '#101010');
+    grad.addColorStop(0.65, '#252525');
     grad.addColorStop(1, 'rgba(200,200,200,0)');
     rctx.fillStyle = grad;
     rctx.beginPath();
     rctx.arc(px, py, rad, 0, Math.PI * 2);
     rctx.fill();
+
+    const stain = ctx.createRadialGradient(px, py, rad * 0.2, px, py, rad);
+    stain.addColorStop(0, 'rgba(12,16,24,0.52)');
+    stain.addColorStop(1, 'rgba(12,16,24,0)');
+    ctx.fillStyle = stain;
+    ctx.fillRect(px - rad, py - rad, rad * 2, rad * 2);
   }
 
   const map = new THREE.CanvasTexture(c);
@@ -128,20 +170,25 @@ export function createSidewalkTexture(maxAnisotropy: number): THREE.CanvasTextur
   canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#9CA3AF';
+  const random = textureRandom(542);
+  ctx.fillStyle = '#49443f';
   ctx.fillRect(0, 0, 256, 256);
-
-  ctx.strokeStyle = '#6B7280';
-  ctx.lineWidth = 3;
-  for (let i = 0; i <= 256; i += 64) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, 256);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, i);
-    ctx.lineTo(256, i);
-    ctx.stroke();
+  for (let row = -1; row < 8; row++) {
+    for (let column = 0; column < 4; column++) {
+      const x = column * 64;
+      const y = row * 32 + (column % 2) * 16;
+      const stone = 122 + Math.floor(random() * 43);
+      ctx.fillStyle = `rgb(${stone + 14},${stone + 8},${stone})`;
+      ctx.fillRect(x + 1, y + 1, 62, 30);
+      ctx.fillStyle = 'rgba(250,230,201,0.38)';
+      ctx.fillRect(x + 1, y + 1, 62, 1);
+      ctx.fillStyle = 'rgba(36,30,24,0.25)';
+      ctx.fillRect(x + 2, y + 29, 60, 2);
+    }
+  }
+  for (let i = 0; i < 8500; i++) {
+    ctx.fillStyle = random() < 0.5 ? 'rgba(44,37,31,0.18)' : 'rgba(235,224,204,0.18)';
+    ctx.fillRect(random() * 256, random() * 256, 1.6, 1.6);
   }
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -215,7 +262,8 @@ function createFabricPatternTexture(baseHex: string, floralHex: string): THREE.C
 
 export function createPanelkaFacadeTextures(
   wallColor: string,
-  maxAnisotropy: number
+  maxAnisotropy: number,
+  seed: number
 ): { map: THREE.CanvasTexture; emissiveMap: THREE.CanvasTexture } {
   const c = document.createElement('canvas');
   c.width = 512;
@@ -232,33 +280,54 @@ export function createPanelkaFacadeTextures(
   ectx.fillStyle = '#000000';
   ectx.fillRect(0, 0, 512, 512);
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.18)';
-  ctx.lineWidth = 3;
-  for (let y = 0; y < 512; y += 102) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(512, y);
-    ctx.stroke();
-  }
-
+  const random = textureRandom(seed);
   for (let row = 0; row < 5; row++) {
     for (let col = 0; col < 5; col++) {
-      const wx = 26 + col * 96;
-      const wy = 20 + row * 100;
-      const lit = Math.random() > 0.45;
-      ctx.fillStyle = lit ? '#FDE68A' : '#334155';
-      ctx.fillRect(wx, wy, 56, 62);
-      ctx.strokeStyle = '#E2E8F0';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(wx, wy, 56, 62);
-      ctx.fillStyle = '#CBD5E1';
-      ctx.fillRect(wx + 26, wy, 4, 62);
+      const x = col * 102.4;
+      const y = row * 102.4;
+      ctx.fillStyle = `rgba(73,59,46,${random() * 0.21})`;
+      ctx.fillRect(x + 1, y + 1, 100.4, 100.4);
+      ctx.fillStyle = 'rgba(57,46,38,0.3)';
+      ctx.fillRect(x, y, 102.4, 2);
+      ctx.fillRect(x, y, 2, 102.4);
+      ctx.fillStyle = 'rgba(255,238,206,0.27)';
+      ctx.fillRect(x + 2, y + 2, 100.4, 1);
+
+      const wx = x + 22;
+      const wy = y + 18;
+      const lit = random() > 0.61;
+      const glow = random() > 0.4 ? '#f6bc70' : '#ffe1a5';
+      const glass = ctx.createLinearGradient(wx, wy, wx, wy + 61);
+      glass.addColorStop(0, lit ? glow : '#344354');
+      glass.addColorStop(1, lit ? '#805039' : '#151e2b');
+
+      ctx.fillStyle = 'rgba(51,39,34,0.48)';
+      ctx.fillRect(wx - 6, wy - 3, 69, 72);
+      ctx.fillStyle = '#b6a99b';
+      ctx.fillRect(wx - 3, wy - 3, 65, 68);
+      ctx.fillStyle = glass;
+      ctx.fillRect(wx, wy, 59, 62);
 
       if (lit) {
-        ectx.fillStyle = '#F59E0B';
-        ectx.fillRect(wx + 2, wy + 2, 52, 58);
+        ectx.fillStyle = glow;
+        ectx.fillRect(wx, wy, 59, 62);
+        const curtainWidth = 10 + random() * 18;
+        ctx.fillStyle = 'rgba(91,52,39,0.55)';
+        ctx.fillRect(wx, wy, curtainWidth, 62);
+        ectx.fillStyle = '#4d2815';
+        ectx.fillRect(wx, wy, curtainWidth, 62);
       }
+      ctx.fillStyle = '#aa9a88';
+      ctx.fillRect(wx + 32, wy, 3, 62);
+      ctx.fillStyle = '#c4b5a6';
+      ctx.fillRect(wx - 6, wy + 62, 71, 4);
+      ectx.fillStyle = '#000';
+      ectx.fillRect(wx + 32, wy, 3, 62);
     }
+  }
+  for (let i = 0; i < 12000; i++) {
+    ctx.fillStyle = random() < 0.52 ? 'rgba(45,38,31,0.20)' : 'rgba(248,222,189,0.15)';
+    ctx.fillRect(random() * 512, random() * 512, 1.7, 1.7);
   }
 
   const map = new THREE.CanvasTexture(c);
@@ -1891,7 +1960,7 @@ export function buildOpenWorldDistrict(
   sidewalkTex: THREE.Texture,
   woodTex: THREE.Texture,
   maxAnisotropy: number
-): DrivableCarActor[] {
+): { cars: DrivableCarActor[]; facadeTextures: THREE.Texture[] } {
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(340, 340),
     new THREE.MeshStandardMaterial({ map: grassTex, roughness: 0.92, metalness: 0 })
@@ -1905,8 +1974,8 @@ export function buildOpenWorldDistrict(
     roughnessMap: asphalt.roughnessMap,
     roughness: 0.72,
     metalness: 0.05,
-    clearcoat: 0.32,
-    clearcoatRoughness: 0.35,
+    clearcoat: 0.22,
+    clearcoatRoughness: 0.3,
   });
 
   const roadNS = new THREE.Mesh(new THREE.PlaneGeometry(14, 150), asphaltMat);
@@ -1956,19 +2025,25 @@ export function buildOpenWorldDistrict(
     [0, -64, 28, 15, 12, 1],
   ];
 
-  const facadePairs = panelkaColors.map((col) =>
-    createPanelkaFacadeTextures(col, maxAnisotropy)
+  const ledges = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: 0x948171, roughness: 0.88 }),
+    buildings.length * 9,
   );
+  const ledge = new THREE.Object3D();
+  let ledgeIndex = 0;
+  const facadeTextures: THREE.Texture[] = [];
   const roofMat = new THREE.MeshStandardMaterial({ color: 0x374151, roughness: 0.9 });
 
-  buildings.forEach(([bx, bz, bw, bh, bd, idx]) => {
-    const texSet = facadePairs[idx % facadePairs.length];
+  buildings.forEach(([bx, bz, bw, bh, bd, idx], buildingIndex) => {
+    const texSet = createPanelkaFacadeTextures(panelkaColors[idx], maxAnisotropy, 701 + buildingIndex);
+    facadeTextures.push(texSet.map, texSet.emissiveMap);
     const wallMat = new THREE.MeshStandardMaterial({
       map: texSet.map,
       emissiveMap: texSet.emissiveMap,
       emissive: new THREE.Color(0xfbbf24),
-      emissiveIntensity: 0.85,
-      roughness: 0.78,
+      emissiveIntensity: 0.58,
+      roughness: 0.82,
     });
     const bldg = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), [
       wallMat,
@@ -1982,7 +2057,25 @@ export function buildOpenWorldDistrict(
     bldg.castShadow = true;
     bldg.receiveShadow = true;
     scene.add(bldg);
+
+    ledge.position.set(bx, bh + 0.12, bz);
+    ledge.scale.set(bw + 0.5, 0.24, bd + 0.5);
+    ledge.updateMatrix();
+    ledges.setMatrixAt(ledgeIndex++, ledge.matrix);
+
+    const facing = bz > 0 ? -1 : 1;
+    for (let floor = 1; floor < 5; floor++) {
+      for (const wing of [-1, 1]) {
+        ledge.position.set(bx + wing * bw * 0.2, bh * (floor + 0.2) / 5, bz + facing * (bd / 2 + 0.32));
+        ledge.scale.set(bw * 0.15, 0.44, 0.65);
+        ledge.updateMatrix();
+        ledges.setMatrixAt(ledgeIndex++, ledge.matrix);
+      }
+    }
   });
+  ledges.castShadow = true;
+  ledges.receiveShadow = true;
+  scene.add(ledges);
 
   const poleMat = new THREE.MeshStandardMaterial({
     color: 0x1f2937,
@@ -2034,16 +2127,17 @@ export function buildOpenWorldDistrict(
   // Instanced Trees around perimeter
   const treeCount = 64;
   const trunkMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.9 });
-  const foliageMat = new THREE.MeshStandardMaterial({ color: 0x3b7a32, roughness: 0.82 });
+  const foliageMat = new THREE.MeshStandardMaterial({ roughness: 0.96 });
+  const clustersPerTree = 5;
   const trunks = new THREE.InstancedMesh(
     new THREE.CylinderGeometry(0.26, 0.38, 4.2, 8),
     trunkMat,
     treeCount
   );
   const crowns = new THREE.InstancedMesh(
-    new THREE.DodecahedronGeometry(2.3, 1),
+    new THREE.IcosahedronGeometry(1, 2),
     foliageMat,
-    treeCount
+    treeCount * clustersPerTree
   );
 
   const dummy = new THREE.Object3D();
@@ -2062,17 +2156,31 @@ export function buildOpenWorldDistrict(
     dummy.updateMatrix();
     trunks.setMatrixAt(i, dummy.matrix);
 
-    dummy.position.set(tx, 4.9 * sc, tz);
-    dummy.updateMatrix();
-    crowns.setMatrixAt(i, dummy.matrix);
-
-    tint.setHSL(0.26 + (i % 4) * 0.02, 0.48, 0.3 + (i % 5) * 0.03);
-    crowns.setColorAt(i, tint);
+    for (let cluster = 0; cluster < clustersPerTree; cluster++) {
+      const index = i * clustersPerTree + cluster;
+      const offsetAngle = angle + cluster * (Math.PI / 2);
+      const top = cluster === 0;
+      const offset = top ? 0 : 1.12 * sc;
+      dummy.position.set(tx + Math.cos(offsetAngle) * offset,
+        (top ? 5.4 : 4.25 + (cluster % 2) * 0.35) * sc,
+        tz + Math.sin(offsetAngle) * offset);
+      dummy.rotation.y = offsetAngle;
+      const radius = (top ? 1.76 : 1.45) * sc;
+      dummy.scale.set(radius, radius * (top ? 1.2 : 0.86), radius);
+      dummy.updateMatrix();
+      crowns.setMatrixAt(index, dummy.matrix);
+      tint.setHSL(0.17 + (i % 5) * 0.038, 0.44, 0.20 + (i % 4) * 0.041 + (top ? 0.06 : 0));
+      crowns.setColorAt(index, tint);
+    }
+    dummy.rotation.y = 0;
   }
+  trunks.castShadow = true;
+  crowns.castShadow = true;
+  crowns.receiveShadow = true;
   trunks.computeBoundingSphere();
   crowns.computeBoundingSphere();
   scene.add(trunks);
   scene.add(crowns);
 
-  return cars;
+  return { cars, facadeTextures };
 }

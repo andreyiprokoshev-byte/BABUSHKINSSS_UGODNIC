@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -48,6 +47,7 @@ import {
   createAsphaltTextures,
   createBaltikaCanTexture,
   createGoldenSkyDome,
+  getDistrictSunDirection,
   createGrassTexture,
   createSidewalkTexture,
   createSignTexture,
@@ -488,7 +488,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     renderer.toneMappingExposure = 1.0;
     renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = !isSoftwareGl;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
 
     const width = container.clientWidth || 960;
     const height = container.clientHeight || 540;
@@ -509,24 +509,25 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     renderer.domElement.addEventListener('webglcontextrestored', onContextRestored);
 
     const scene = new THREE.Scene();
-    const fogColor = 0xdcb995;
-    scene.fog = new THREE.FogExp2(fogColor, 0.0045);
-    scene.add(createGoldenSkyDome());
+    scene.fog = new THREE.FogExp2(0xd2a894, 0.0062);
+    const sky = createGoldenSkyDome();
+    scene.add(sky);
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.5;
+    const environment = pmremGenerator.fromScene(scene, 0.08, 0.1, 240);
+    scene.environment = environment.texture;
+    scene.environmentIntensity = 0.44;
     pmremGenerator.dispose();
 
     const camera = new THREE.PerspectiveCamera(74, width / height, 0.1, 240);
     camera.rotation.order = 'YXZ';
     scene.add(camera);
 
-    const hemiLight = new THREE.HemisphereLight(0x93c5fd, 0x3b4d2b, 0.55);
+    const hemiLight = new THREE.HemisphereLight(0xa6c4ed, 0x665044, 0.78);
     scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffdca8, 1.35);
-    sunLight.position.set(42, 28, 52);
+    const sunLight = new THREE.DirectionalLight(0xffd7ab, 1.85);
+    sunLight.position.copy(getDistrictSunDirection()).multiplyScalar(82);
     sunLight.castShadow = !isSoftwareGl;
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
@@ -537,22 +538,24 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     sunLight.shadow.camera.top = 46;
     sunLight.shadow.camera.bottom = -46;
     sunLight.shadow.bias = -0.0004;
-    sunLight.shadow.normalBias = 0.02;
+    sunLight.shadow.normalBias = 0.035;
+    sunLight.shadow.radius = 2;
     scene.add(sunLight);
 
-    const rimLight = new THREE.DirectionalLight(0xa5b4fc, 0.35);
+    const rimLight = new THREE.DirectionalLight(0xaebfff, 0.24);
     rimLight.position.set(-34, 18, -36);
     scene.add(rimLight);
 
     let composer: EffectComposer | null = null;
+    let bloomPass: UnrealBloomPass | null = null;
     if (!isSoftwareGl) {
       composer = new EffectComposer(renderer);
       composer.addPass(new RenderPass(scene, camera));
-      const bloomPass = new UnrealBloomPass(
+      bloomPass = new UnrealBloomPass(
         new THREE.Vector2(width, height),
-        0.2,
-        0.35,
-        0.94
+        0.19,
+        0.32,
+        1.08
       );
       composer.addPass(bloomPass);
       composer.addPass(new OutputPass());
@@ -608,7 +611,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       return t;
     });
 
-    const cars: DrivableCarActor[] = buildOpenWorldDistrict(
+    const { cars, facadeTextures } = buildOpenWorldDistrict(
       scene,
       grassTex,
       asphalt,
@@ -1886,6 +1889,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       lastTime = now;
 
       updateSimulation(dt, now * 0.001);
+      sky.position.copy(camera.position);
       if (composer) composer.render();
       else renderer.render(scene, camera);
 
@@ -1923,7 +1927,11 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       shopSignTex.dispose();
       babushkaTextures.forEach((t) => t.dispose());
       bowlingTextures.forEach((t) => t.dispose());
-      if (composer) composer.dispose();
+      facadeTextures.forEach((texture) => texture.dispose());
+      sunLight.shadow.dispose();
+      environment.dispose();
+      bloomPass?.dispose();
+      composer?.dispose();
       renderer.dispose();
 
       if (renderer.domElement.parentNode === container) {
