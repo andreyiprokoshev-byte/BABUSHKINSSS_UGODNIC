@@ -1,0 +1,6 @@
+{
+  "name": "Пирожковый Двор",
+  "description": "Весёлая 2D-аркада: бегай по двору на WASD, угощай бабушек пирожками на E и получай газяву с кириками.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

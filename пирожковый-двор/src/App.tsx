@@ -1,0 +1,1362 @@
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import {
+  BabushkaProfile,
+  BabushkaRuntime,
+  BowlingHudState,
+  DistrictEventType,
+  DrivingHudState,
+  FillingType,
+  GameMode,
+  GameState,
+  PetrovichContract,
+  PirozhokInventory,
+  RewardResult,
+  ShopItemDef,
+  ShopItemId,
+  TargetPrompt,
+} from './types/game';
+import {
+  BABUSHKAS,
+  FILLINGS,
+  FILLING_ORDER,
+  MEME_GALLERY_IMAGES,
+} from './data/gameData';
+import { Village3DView } from './components/Village3DView';
+import { PickupKind } from './three/villageModels';
+import { LipBrushMinigame } from './components/LipBrushMinigame';
+import { PetrovichModal } from './components/PetrovichModal';
+import { ShopModal } from './components/ShopModal';
+import { YouTubeSoundtrack } from './components/YouTubeSoundtrack';
+import { soundEngine } from './utils/sound';
+import {
+  Volume2,
+  VolumeX,
+  Pause,
+  Play,
+  RotateCcw,
+  CupSoda,
+  Cookie,
+  Flame,
+  Flag,
+  ChevronDown,
+  ChevronUp,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  Target,
+  Send,
+  Zap,
+  ShoppingBag,
+  Car,
+  Coins,
+  Briefcase,
+} from 'lucide-react';
+
+const EVENT_INFO: Record<
+  Exclude<DistrictEventType, 'NONE'>,
+  { title: string; desc: string; voice: string }
+> = {
+  PITBIKE_TURBO: {
+    title: 'ТУРБО-ПИТБАЙК!',
+    desc: 'Гонщик ускорился и роняет вдвое больше Газявы и Кириков!',
+    voice: 'Внимание! Питбайкер выжал турбо и раскидывает запасы!',
+  },
+  DOUBLE_DROOL: {
+    title: 'СЛЮННЫЙ ДОЖДЬ ×2',
+    desc: '+2 Газявы и +2 Кириков за каждое кормление бабушек!',
+    voice: 'У бабушек слюнный дождь! Награды увеличены!',
+  },
+  GOLDEN_BAKERY: {
+    title: 'ЗОЛОТАЯ ПЕКАРНЯ',
+    desc: 'Тётя Люба кладёт по 5 пирожков и дарит +2 Кириков!',
+    voice: 'Свежая партия у тёти Любы! Налетай в пекарню!',
+  },
+};
+const EVENT_ROTATION: Exclude<DistrictEventType, 'NONE'>[] = [
+  'DOUBLE_DROOL',
+  'PITBIKE_TURBO',
+  'GOLDEN_BAKERY',
+];
+
+const SHIFT_DURATION = 120;
+
+const INITIAL_INVENTORY: PirozhokInventory = {
+  cabbage: 3,
+  potato: 3,
+  cherry: 3,
+  meat: 3,
+};
+
+function createInitialBabushkaStates(): Record<string, BabushkaRuntime> {
+  const states: Record<string, BabushkaRuntime> = {};
+  BABUSHKAS.forEach((b) => {
+    states[b.id] = {
+      id: b.id,
+      craving: b.defaultCraving,
+      cooldownRemaining: 0,
+      fedCount: 0,
+    };
+  });
+  return states;
+}
+
+export default function App() {
+  const [gameState, setGameState] = useState<GameState>('TITLE_MENU');
+  const [gameMode, setGameMode] = useState<GameMode>('ENDLESS');
+  const [timeLeft, setTimeLeft] = useState<number>(SHIFT_DURATION);
+  const [muted, setMuted] = useState<boolean>(false);
+  const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
+
+  const [inventory, setInventory] = useState<PirozhokInventory>({ ...INITIAL_INVENTORY });
+  const [gazyava, setGazyava] = useState<number>(0);
+  const [kiriki, setKiriki] = useState<number>(0);
+  const [money, setMoney] = useState<number>(200);
+  const [stashes, setStashes] = useState<number>(0);
+
+  const [totalEarnedGazyava, setTotalEarnedGazyava] = useState<number>(0);
+  const [totalEarnedKiriki, setTotalEarnedKiriki] = useState<number>(0);
+  const [totalEarnedMoney, setTotalEarnedMoney] = useState<number>(0);
+  const [babushkasFed, setBabushkasFed] = useState<number>(0);
+
+  const [ownedItems, setOwnedItems] = useState<Partial<Record<ShopItemId, number>>>({});
+  const [contract, setContract] = useState<PetrovichContract>({
+    active: false,
+    delivered: 0,
+    total: 3,
+    rewardMoney: 1500,
+  });
+
+  const [babushkaStates, setBabushkaStates] = useState<Record<string, BabushkaRuntime>>(
+    createInitialBabushkaStates
+  );
+  const [activeBabushka, setActiveBabushka] = useState<BabushkaProfile | null>(null);
+  const [targetPrompt, setTargetPrompt] = useState<TargetPrompt | null>(null);
+  const [toastMessage, setToastMessage] = useState<{
+    text: string;
+    tone: 'emerald' | 'amber' | 'red';
+  } | null>(null);
+
+  const [bowlingHud, setBowlingHud] = useState<BowlingHudState>({
+    aimAngle: 0,
+    phase: 'AIMING',
+    pinsKnocked: 0,
+    totalPins: 6,
+    throwsLeft: 3,
+  });
+
+  const [drivingHud, setDrivingHud] = useState<DrivingHudState>({
+    inCar: false,
+    carName: '',
+    speedKmh: 0,
+    passengerName: null,
+    rideDistanceMeters: 0,
+  });
+
+  const [gazyavaBoostTimer, setGazyavaBoostTimer] = useState<number>(0);
+  const [kirikiBuffTimer, setKirikiBuffTimer] = useState<number>(0);
+  const [combo, setCombo] = useState<number>(1);
+  const [districtEvent, setDistrictEvent] = useState<DistrictEventType>('NONE');
+  const [soundtrackStartSignal, setSoundtrackStartSignal] = useState<number>(0);
+
+  const eventTimerRef = useRef<number>(10);
+  const eventIdxRef = useRef<number>(0);
+  const passiveIncomeTimerRef = useRef<number>(8);
+
+  const virtualInputRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  const interactTriggerRef = useRef<(() => void) | null>(null);
+  const throwTriggerRef = useRef<(() => void) | null>(null);
+  const bowlLaunchRef = useRef<(() => void) | null>(null);
+  const toastTimeoutRef = useRef<number>(0);
+
+  const hasCrown = (ownedItems.district_crown ?? 0) >= 1;
+  const hasFurCoat = (ownedItems.diamond_fur_coat ?? 0) >= 1;
+  const hasShare = (ownedItems.petrovich_share ?? 0) >= 1;
+  const hasRollingPin = (ownedItems.rolling_pin ?? 0) >= 1;
+  const hasFakeLicense = (ownedItems.fake_license ?? 0) >= 1;
+  const hasLootMagnet = (ownedItems.loot_magnet ?? 0) >= 1;
+  const hasGoldenLauncher = (ownedItems.golden_launcher ?? 0) >= 1;
+  const speedBonusLevel = ownedItems.seeds ?? 0;
+
+  const globalIncomeMultiplier = (hasCrown ? 5 : 1) * (hasFurCoat ? 3 : 1);
+
+  const showToast = useCallback((text: string, tone: 'emerald' | 'amber' | 'red' = 'amber') => {
+    clearTimeout(toastTimeoutRef.current);
+    setToastMessage({ text, tone });
+    toastTimeoutRef.current = window.setTimeout(() => {
+      setToastMessage(null);
+    }, 2800);
+  }, []);
+
+  const startGame = useCallback(
+    (selectedMode: GameMode = gameMode) => {
+      soundEngine.unlock();
+      soundEngine.playInteract();
+      setGameMode(selectedMode);
+      setTimeLeft(SHIFT_DURATION);
+      setInventory({ ...INITIAL_INVENTORY });
+      setGazyava(0);
+      setKiriki(0);
+      setMoney(200);
+      setStashes(0);
+      setTotalEarnedGazyava(0);
+      setTotalEarnedKiriki(0);
+      setTotalEarnedMoney(0);
+      setBabushkasFed(0);
+      setOwnedItems({});
+      setContract({ active: false, delivered: 0, total: 3, rewardMoney: 1500 });
+      setBabushkaStates(createInitialBabushkaStates());
+      setActiveBabushka(null);
+      setTargetPrompt(null);
+      setToastMessage(null);
+      setGazyavaBoostTimer(0);
+      setKirikiBuffTimer(0);
+      setCombo(1);
+      setDistrictEvent('NONE');
+      setDrivingHud({
+        inCar: false,
+        carName: '',
+        speedKmh: 0,
+        passengerName: null,
+        rideDistanceMeters: 0,
+      });
+      eventTimerRef.current = 10;
+      eventIdxRef.current = 0;
+      passiveIncomeTimerRef.current = 8;
+      setSoundtrackStartSignal((n) => n + 1);
+      setGameState('PLAYING');
+    },
+    [gameMode]
+  );
+
+  const toggleMute = () => {
+    const next = !muted;
+    setMuted(next);
+    soundEngine.setMuted(next);
+  };
+
+  const handleUseGazyavaBoost = useCallback(() => {
+    if (gameState !== 'PLAYING' || gazyava <= 0) return;
+    soundEngine.playSodaFizz();
+    setGazyava((g) => Math.max(0, g - 1));
+    setGazyavaBoostTimer(8);
+    showToast('Турбо-бег от Газявы активирован на 8с!', 'emerald');
+  }, [gameState, gazyava, showToast]);
+
+  const handleUseKirikiBuff = useCallback(() => {
+    if (gameState !== 'PLAYING' || kiriki <= 0) return;
+    soundEngine.playCrunch();
+    setKiriki((k) => Math.max(0, k - 1));
+    setKirikiBuffTimer(12);
+    showToast('Хруст Кириков: +2 к каждой награде на 12с!', 'amber');
+  }, [gameState, kiriki, showToast]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (gameState === 'PLAYING') {
+        if (e.code === 'KeyP') {
+          e.preventDefault();
+          setGameState('PAUSED');
+        } else if (e.code === 'KeyH') {
+          e.preventDefault();
+          setDockCollapsed((c) => !c);
+        } else if (e.code === 'Digit1') {
+          e.preventDefault();
+          handleUseGazyavaBoost();
+        } else if (e.code === 'Digit2') {
+          e.preventDefault();
+          handleUseKirikiBuff();
+        } else if (e.code === 'KeyB') {
+          e.preventDefault();
+          if (document.pointerLockElement) document.exitPointerLock();
+          setGameState('SHOP');
+        }
+      } else if (gameState === 'PAUSED') {
+        if (e.code === 'Escape' || e.code === 'KeyP') {
+          e.preventDefault();
+          setGameState('PLAYING');
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [gameState, handleUseGazyavaBoost, handleUseKirikiBuff]);
+
+  const handleStepTimer = useCallback(
+    (dt: number) => {
+      if (gameMode === 'SHIFT') {
+        setTimeLeft((prev) => {
+          const next = prev - dt;
+          if (next <= 0) {
+            setGameState('GAME_OVER');
+            return 0;
+          }
+          return next;
+        });
+      }
+
+      setGazyavaBoostTimer((t) => (t > 0 ? Math.max(0, t - dt) : 0));
+      setKirikiBuffTimer((t) => (t > 0 ? Math.max(0, t - dt) : 0));
+
+      if (hasShare) {
+        passiveIncomeTimerRef.current -= dt;
+        if (passiveIncomeTimerRef.current <= 0) {
+          passiveIncomeTimerRef.current = 8;
+          const payout = Math.round(200 * (hasCrown ? 5 : 1));
+          setMoney((m) => m + payout);
+          setTotalEarnedMoney((m) => m + payout);
+          soundEngine.playCash();
+          showToast(`Доля у Петровича: +${payout} ₽`, 'emerald');
+        }
+      }
+
+      eventTimerRef.current -= dt;
+      if (eventTimerRef.current <= 0) {
+        if (districtEvent === 'NONE') {
+          const nextEv = EVENT_ROTATION[eventIdxRef.current % EVENT_ROTATION.length];
+          eventIdxRef.current += 1;
+          setDistrictEvent(nextEv);
+          eventTimerRef.current = 15;
+          soundEngine.speakRussian(EVENT_INFO[nextEv].voice, { pitch: 1.1, rate: 1.08 });
+        } else {
+          setDistrictEvent('NONE');
+          eventTimerRef.current = 9;
+        }
+      }
+
+      setBabushkaStates((prev) => {
+        let changed = false;
+        const next: Record<string, BabushkaRuntime> = {};
+        for (const key of Object.keys(prev)) {
+          const b = prev[key];
+          if (b.cooldownRemaining > 0) {
+            changed = true;
+            next[key] = {
+              ...b,
+              cooldownRemaining: Math.max(0, b.cooldownRemaining - dt),
+            };
+          } else {
+            next[key] = b;
+          }
+        }
+        return changed ? next : prev;
+      });
+    },
+    [gameMode, districtEvent, hasShare, hasCrown, showToast]
+  );
+
+  const handleInteractBakery = useCallback(() => {
+    soundEngine.playBakeRestock();
+    const countPerFilling = districtEvent === 'GOLDEN_BAKERY' ? 5 : 3;
+    setInventory({
+      cabbage: countPerFilling,
+      potato: countPerFilling,
+      cherry: countPerFilling,
+      meat: countPerFilling,
+    });
+    if (districtEvent === 'GOLDEN_BAKERY') {
+      setKiriki((k) => k + 2);
+      setTotalEarnedKiriki((k) => k + 2);
+      showToast('Золотая пекарня: полный поднос (по 5 шт.) и +2 Кириков!', 'amber');
+    } else {
+      showToast('Поднос полон горячих пирожков!', 'amber');
+    }
+  }, [districtEvent, showToast]);
+
+  const handleInteractBabushka = useCallback((babushka: BabushkaProfile) => {
+    soundEngine.playInteract();
+    setActiveBabushka(babushka);
+    setGameState('MINIGAME');
+  }, []);
+
+  const handleEnterBowling = useCallback(() => {
+    soundEngine.playInteract();
+    soundEngine.speakRussian('Садись рядом, щас запустим бабушек в страйк!', {
+      pitch: 1.28,
+      priority: true,
+    });
+    setGameState('BOWLING');
+  }, []);
+
+  const handleExitBowling = useCallback(() => {
+    setGameState('PLAYING');
+  }, []);
+
+  const handleEnterPetrovich = useCallback(() => {
+    soundEngine.playInteract();
+    setGameState('PETROVICH');
+  }, []);
+
+  const handleEnterShop = useCallback(() => {
+    soundEngine.playInteract();
+    setGameState('SHOP');
+  }, []);
+
+  const handleSellStashes = useCallback(() => {
+    if (stashes <= 0) return;
+    const priceEach = Math.round(350 * globalIncomeMultiplier);
+    const total = stashes * priceEach;
+    soundEngine.playCash();
+    setMoney((m) => m + total);
+    setTotalEarnedMoney((m) => m + total);
+    setStashes(0);
+    showToast(`Сданы закладки Петровичу: +${total.toLocaleString('ru-RU')} ₽!`, 'emerald');
+  }, [stashes, globalIncomeMultiplier, showToast]);
+
+  const handleStartContract = useCallback(() => {
+    soundEngine.playInteract();
+    const rewardMoney = Math.round(1500 * (hasCrown ? 5 : 1));
+    setContract({
+      active: true,
+      delivered: 0,
+      total: 3,
+      rewardMoney,
+    });
+    soundEngine.speakRussian('Бери три свёртка и вези к зелёным маякам! На Жигуле быстрее!', {
+      pitch: 0.75,
+      priority: true,
+    });
+    showToast('Контракт Петровича: развези товар по 3 зелёным точкам!', 'emerald');
+  }, [hasCrown, showToast]);
+
+  const handleQuickShiftWork = useCallback(() => {
+    const earned = Math.round(140 * globalIncomeMultiplier);
+    soundEngine.playCash();
+    setMoney((m) => m + earned);
+    setTotalEarnedMoney((m) => m + earned);
+  }, [globalIncomeMultiplier]);
+
+  const handleDeliverDropoff = useCallback(() => {
+    setContract((prev) => {
+      if (!prev.active) return prev;
+      const nextDelivered = prev.delivered + 1;
+      if (nextDelivered >= prev.total) {
+        const cash = prev.rewardMoney;
+        setMoney((m) => m + cash);
+        setTotalEarnedMoney((m) => m + cash);
+        soundEngine.speakRussian('Красава! Все точки закрыты, забирай кэш!', {
+          pitch: 0.78,
+          priority: true,
+        });
+        showToast(`Все 3 точки доставлены! +${cash.toLocaleString('ru-RU')} ₽!`, 'emerald');
+        return { ...prev, active: false, delivered: 0 };
+      }
+      const partCash = Math.round(250 * (hasCrown ? 5 : 1));
+      setMoney((m) => m + partCash);
+      setTotalEarnedMoney((m) => m + partCash);
+      showToast(
+        `Точка ${nextDelivered}/${prev.total} доставлена! +${partCash} ₽`,
+        'emerald'
+      );
+      return { ...prev, delivered: nextDelivered };
+    });
+  }, [hasCrown, showToast]);
+
+  const handleCarRideReward = useCallback(
+    (babushkaName: string) => {
+      const cash = Math.round((hasFakeLicense ? 280 : 180) * globalIncomeMultiplier);
+      const bonusG = hasFurCoat ? 3 : 1;
+      const bonusK = hasFurCoat ? 3 : 1;
+      soundEngine.playCash();
+      setMoney((m) => m + cash);
+      setTotalEarnedMoney((m) => m + cash);
+      setGazyava((g) => g + bonusG);
+      setKiriki((k) => k + bonusK);
+      setTotalEarnedGazyava((g) => g + bonusG);
+      setTotalEarnedKiriki((k) => k + bonusK);
+      showToast(
+        `${babushkaName} в восторге от поездки: +${cash} ₽, +${bonusG} Газява, +${bonusK} Кирики!`,
+        'emerald'
+      );
+    },
+    [hasFakeLicense, globalIncomeMultiplier, hasFurCoat, showToast]
+  );
+
+  const handleBuyShopItem = useCallback(
+    (item: ShopItemDef) => {
+      if (money < item.costMoney || gazyava < item.costGazyava || kiriki < item.costKiriki) {
+        return;
+      }
+      const currentCount = ownedItems[item.id] ?? 0;
+      if (!item.repeatable && currentCount >= 1) return;
+      if (item.maxStack && currentCount >= item.maxStack) return;
+
+      soundEngine.playBuy();
+      setMoney((m) => m - item.costMoney);
+      setGazyava((g) => g - item.costGazyava);
+      setKiriki((k) => k - item.costKiriki);
+      setOwnedItems((prev) => ({
+        ...prev,
+        [item.id]: (prev[item.id] ?? 0) + 1,
+      }));
+
+      if (item.id === 'spare_pies') {
+        setInventory((inv) => ({
+          cabbage: inv.cabbage + 2,
+          potato: inv.potato + 2,
+          cherry: inv.cherry + 2,
+          meat: inv.meat + 2,
+        }));
+      } else if (item.id === 'energy_drink') {
+        setGazyavaBoostTimer(20);
+      }
+
+      showToast(`Куплено: ${item.name}!`, 'emerald');
+    },
+    [money, gazyava, kiriki, ownedItems, showToast]
+  );
+
+  const handleBowlingResult = useCallback(
+    (pinsKnocked: number, isStrike: boolean) => {
+      if (pinsKnocked > 0 || isStrike) soundEngine.playReward();
+      const mult = hasCrown ? 5 : 1;
+      const bonus = isStrike ? 4 : 0;
+      const earnedG = (pinsKnocked + bonus) * mult;
+      const earnedK = (pinsKnocked + bonus) * mult;
+      const earnedCash = pinsKnocked * 80 * mult;
+
+      if (earnedG > 0) {
+        setGazyava((g) => g + earnedG);
+        setKiriki((k) => k + earnedK);
+        setMoney((m) => m + earnedCash);
+        setTotalEarnedGazyava((g) => g + earnedG);
+        setTotalEarnedKiriki((k) => k + earnedK);
+        setTotalEarnedMoney((m) => m + earnedCash);
+      }
+      if (isStrike) {
+        soundEngine.speakRussian('СТРАЙК! ВОТ ЭТО БРОСОК!', {
+          pitch: 1.35,
+          priority: true,
+        });
+        showToast(
+          `СТРАЙК! +${earnedG} Газява, +${earnedK} Кирики, +${earnedCash} ₽!`,
+          'emerald'
+        );
+      } else if (pinsKnocked > 0) {
+        showToast(
+          `Сбито ${pinsKnocked}! +${earnedG} Газява, +${earnedK} Кирики, +${earnedCash} ₽`,
+          'emerald'
+        );
+      } else {
+        showToast('Мимо банок! Попробуй ещё раз!', 'amber');
+      }
+    },
+    [hasCrown, showToast]
+  );
+
+  const handleConsumePirozhok = useCallback((): FillingType | null => {
+    let chosen: FillingType | null = null;
+    let bestCount = 0;
+    for (const f of FILLING_ORDER) {
+      if (inventory[f] > bestCount) {
+        bestCount = inventory[f];
+        chosen = f;
+      }
+    }
+    if (!chosen) return null;
+    const used = chosen;
+    setInventory((prev) => ({
+      ...prev,
+      [used]: Math.max(0, prev[used] - 1),
+    }));
+    return used;
+  }, [inventory]);
+
+  const handleCollectPickup = useCallback(
+    (kind: PickupKind) => {
+      if (kind === 'gazyava') {
+        setGazyava((g) => g + 2);
+        setTotalEarnedGazyava((g) => g + 2);
+        showToast('Подобрана Газява (+2)!', 'emerald');
+      } else if (kind === 'kiriki') {
+        setKiriki((k) => k + 2);
+        setTotalEarnedKiriki((k) => k + 2);
+        showToast('Подобраны Кирики (+2)!', 'amber');
+      } else if (kind === 'money') {
+        const cash = Math.round(250 * (hasCrown ? 5 : 1));
+        setMoney((m) => m + cash);
+        setTotalEarnedMoney((m) => m + cash);
+        showToast(`Найдены рубли (+${cash} ₽)!`, 'emerald');
+      } else if (kind === 'stash') {
+        setStashes((s) => s + 1);
+        showToast('Подобрана закладка! Сдай Петровичу за кэш!', 'amber');
+      } else {
+        setInventory((prev) => ({
+          ...prev,
+          meat: prev.meat + 1,
+          cherry: prev.cherry + 1,
+        }));
+        setGazyava((g) => g + 1);
+        setTotalEarnedGazyava((g) => g + 1);
+        showToast('Золотой пирожок у Жигулей: +2 пирожка и +1 Газява!', 'amber');
+      }
+    },
+    [hasCrown, showToast]
+  );
+
+  const handlePitbikerBump = useCallback(() => {
+    setCombo(1);
+  }, []);
+
+  const handleMinigameComplete = useCallback(
+    (result: RewardResult) => {
+      if (!activeBabushka) return;
+
+      const eventBonus = districtEvent === 'DOUBLE_DROOL' ? 2 : 0;
+      const comboBonus = combo - 1;
+      const finalGazyava = (result.gazyava + eventBonus + comboBonus) * globalIncomeMultiplier;
+      const finalKiriki = (result.kiriki + eventBonus + comboBonus) * globalIncomeMultiplier;
+      const tipCash = Math.round(110 * combo * globalIncomeMultiplier);
+
+      setInventory((prev) => ({
+        ...prev,
+        [result.fillingUsed]: Math.max(0, prev[result.fillingUsed] - 1),
+      }));
+
+      setGazyava((g) => g + finalGazyava);
+      setKiriki((k) => k + finalKiriki);
+      setMoney((m) => m + tipCash);
+      setTotalEarnedGazyava((g) => g + finalGazyava);
+      setTotalEarnedKiriki((k) => k + finalKiriki);
+      setTotalEarnedMoney((m) => m + tipCash);
+      setBabushkasFed((c) => c + 1);
+      setCombo((c) => Math.min(3, c + 1));
+
+      const nextCraving: FillingType =
+        FILLING_ORDER[Math.floor(Math.random() * FILLING_ORDER.length)];
+      setBabushkaStates((prev) => ({
+        ...prev,
+        [activeBabushka.id]: {
+          ...prev[activeBabushka.id],
+          craving: nextCraving,
+          cooldownRemaining: 6,
+          fedCount: prev[activeBabushka.id].fedCount + 1,
+        },
+      }));
+
+      showToast(
+        `${activeBabushka.name} (×${combo}): +${finalGazyava} Газява, +${finalKiriki} Кирики, +${tipCash} ₽!`,
+        'emerald'
+      );
+
+      setActiveBabushka(null);
+      setGameState('PLAYING');
+    },
+    [activeBabushka, combo, districtEvent, globalIncomeMultiplier, showToast]
+  );
+
+  const handleMinigameCancel = useCallback(() => {
+    setActiveBabushka(null);
+    setGameState('PLAYING');
+  }, []);
+
+  const handlePitbikerAlert = useCallback(
+    (msg: string) => {
+      showToast(msg, 'red');
+    },
+    [showToast]
+  );
+
+  const totalPirozhki =
+    inventory.cabbage + inventory.potato + inventory.cherry + inventory.meat;
+
+  const formatTime = (sec: number) => {
+    const s = Math.ceil(sec);
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return `${String(m).padStart(2, '0')}:${String(rem).padStart(2, '0')}`;
+  };
+
+  const setVirtualDir = (dx: number, dy: number) => {
+    virtualInputRef.current = { dx, dy };
+  };
+
+  return (
+    <div className="h-screen w-screen overflow-hidden bg-[#16191D] text-[#F5F2EB] flex flex-col">
+      {/* Top Bar HUD */}
+      <header className="w-full shrink-0 border-b border-[#272C35] bg-[#1B1F26] z-20">
+        <div className="max-w-7xl mx-auto px-3 sm:px-5 h-14 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <span className="font-display text-base sm:text-lg font-bold tracking-tight text-[#FAF7F2] whitespace-nowrap">
+              Пирожковый Двор 3D
+            </span>
+            {hasCrown && (
+              <span className="hidden lg:inline px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/60 text-[10px] font-bold text-amber-300">
+                КОРОЛЬ РАЙОНА ×5
+              </span>
+            )}
+          </div>
+
+          {gameState !== 'TITLE_MENU' && (
+            <div className="flex items-center gap-3 sm:gap-5 text-xs sm:text-sm overflow-x-auto">
+              <div className="flex items-center gap-1 whitespace-nowrap">
+                <Coins className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="font-mono-tabular font-bold text-emerald-300">
+                  {money.toLocaleString('ru-RU')} ₽
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1 whitespace-nowrap">
+                <CupSoda className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="text-stone-400 text-xs hidden sm:inline">Газява:</span>
+                <span className="font-mono-tabular font-bold text-emerald-300">{gazyava}</span>
+              </div>
+
+              <div className="flex items-center gap-1 whitespace-nowrap">
+                <Cookie className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="text-stone-400 text-xs hidden sm:inline">Кирики:</span>
+                <span className="font-mono-tabular font-bold text-amber-300">{kiriki}</span>
+              </div>
+
+              <div className="hidden md:flex items-center gap-1 whitespace-nowrap">
+                <Briefcase className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                <span className="text-stone-400 text-xs">Закладки:</span>
+                <span className="font-mono-tabular font-bold text-purple-300">{stashes}</span>
+              </div>
+
+              {combo > 1 && (
+                <div className="hidden xl:flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-xs font-mono-tabular font-bold text-amber-300 whitespace-nowrap">
+                  Комбо ×{combo}
+                </div>
+              )}
+
+              {gameMode === 'SHIFT' && (
+                <div className="hidden sm:flex items-center gap-1 whitespace-nowrap">
+                  <span
+                    className={`font-mono-tabular font-bold ${
+                      timeLeft <= 15 ? 'text-red-400' : 'text-[#FAF7F2]'
+                    }`}
+                  >
+                    {formatTime(timeLeft)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 shrink-0">
+            <YouTubeSoundtrack muted={muted} startSignal={soundtrackStartSignal} />
+
+            {gameState === 'PLAYING' && (
+              <button
+                type="button"
+                onClick={handleEnterShop}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-xs font-bold text-white transition-colors cursor-pointer whitespace-nowrap"
+                title="Открыть магазин (B)"
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Магазин (B)</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={toggleMute}
+              className="p-2 rounded-lg bg-[#252A34] hover:bg-[#313845] text-stone-200 transition-colors cursor-pointer"
+              aria-label={muted ? 'Включить звук' : 'Выключить звук'}
+              title={muted ? 'Включить звук' : 'Выключить звук'}
+            >
+              {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+
+            {(gameState === 'PLAYING' || gameState === 'BOWLING') && (
+              <>
+                {gameMode === 'ENDLESS' && (
+                  <button
+                    type="button"
+                    onClick={() => setGameState('GAME_OVER')}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#252A34] hover:bg-amber-600 text-xs font-semibold text-stone-200 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    <span>Завершить</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setGameState('PAUSED')}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#252A34] hover:bg-[#313845] text-xs font-semibold text-stone-200 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <Pause className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">Пауза</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Main 3D Stage */}
+      <main className="relative flex-1 overflow-hidden flex items-center justify-center p-2 sm:p-4">
+        {gameState === 'TITLE_MENU' ? (
+          <section className="w-full max-w-5xl bg-[#FAF7F2] text-[#1E2229] rounded-2xl shadow-2xl border border-[#E2D9C8] p-6 sm:p-8 overflow-y-auto max-h-full">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+              <div className="lg:col-span-7 space-y-5">
+                <div>
+                  <p className="text-xs font-semibold text-[#8A5A19] tracking-wide mb-1.5">
+                    Открытый мир · Живые бабушки · Угон авто · Контора Петровича · Магазин
+                  </p>
+                  <h1 className="font-display text-3xl sm:text-4xl font-extrabold text-[#1E2229] tracking-tight text-balance">
+                    Пирожковый Двор 3D
+                  </h1>
+                  <p className="mt-2.5 text-sm sm:text-base text-[#4A443D] leading-relaxed">
+                    Угощай реалистичных мемных бабушек пирожками на <strong>E</strong>, сбивай
+                    банки в <strong>бабушко-боулинге</strong>, угоняй{' '}
+                    <strong>Жигули</strong> и катай бабушек по проспекту! Перехватывай тайники
+                    закладчиков для <strong>конторы Петровича</strong> и закупайся в{' '}
+                    <strong>Магазине 24/7</strong> от семечек до короны.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-[#E2D9C8]">
+                  <div className="bg-[#F2ECE1] rounded-xl p-3.5">
+                    <div className="font-mono-tabular text-xs font-bold text-[#8A5A19] mb-1">
+                      УГОН И ПОКАТУШКИ
+                    </div>
+                    <div className="text-sm font-semibold text-[#1E2229]">
+                      Угоняй Жигули на E
+                    </div>
+                    <p className="text-xs text-[#645C52] mt-1">
+                      Подъезжай к бабушкам, сажай рядом на E и зарабатывай за крутые заезды.
+                    </p>
+                  </div>
+
+                  <div className="bg-[#F2ECE1] rounded-xl p-3.5">
+                    <div className="font-mono-tabular text-xs font-bold text-[#0F766E] mb-1">
+                      КОНТОРА ПЕТРОВИЧА
+                    </div>
+                    <div className="text-sm font-semibold text-[#1E2229]">
+                      Закладки и развозка
+                    </div>
+                    <p className="text-xs text-[#645C52] mt-1">
+                      Отбирай свёртки у закладчиков пирожками [Q] или развози товар за кэш.
+                    </p>
+                  </div>
+
+                  <div className="bg-[#F2ECE1] rounded-xl p-3.5">
+                    <div className="font-mono-tabular text-xs font-bold text-[#1D4ED8] mb-1">
+                      МАГАЗИН 24/7 (B)
+                    </div>
+                    <div className="text-sm font-semibold text-[#1E2229]">
+                      От мелочи до люкса
+                    </div>
+                    <p className="text-xs text-[#645C52] mt-1">
+                      Трать Кирики, Газяву и Рубли на пирожкомёт, права, долю и шубы!
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2 border-t border-[#E2D9C8]">
+                  <div className="flex items-center gap-1 p-1 bg-[#EAE2D3] rounded-lg self-start">
+                    <button
+                      type="button"
+                      onClick={() => setGameMode('ENDLESS')}
+                      className={`px-3.5 py-2 rounded-md text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                        gameMode === 'ENDLESS'
+                          ? 'bg-white text-[#1E2229] shadow-xs'
+                          : 'text-[#574F45] hover:text-[#1E2229]'
+                      }`}
+                    >
+                      Свободный мир
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGameMode('SHIFT')}
+                      className={`px-3.5 py-2 rounded-md text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                        gameMode === 'SHIFT'
+                          ? 'bg-white text-[#1E2229] shadow-xs'
+                          : 'text-[#574F45] hover:text-[#1E2229]'
+                      }`}
+                    >
+                      Смена (120 сек)
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => startGame(gameMode)}
+                    className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-display font-bold text-base transition-colors cursor-pointer whitespace-nowrap shadow-md"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    Войти в открытый мир
+                  </button>
+                </div>
+              </div>
+
+              <div className="lg:col-span-5">
+                <div className="grid grid-cols-2 gap-2.5">
+                  {MEME_GALLERY_IMAGES.slice(0, 4).map((src, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-xl overflow-hidden border border-[#D8CEBE] shadow-md bg-[#E5DCCF] aspect-square"
+                    >
+                      <img
+                        src={src}
+                        alt={`Мемная бабушка ${idx + 1}`}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover block"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-[#645C52] mt-2 text-center">
+                  Саундтрек в игре: DJ Бутылыч — ГАЗЯВА
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <div className="relative w-full h-full">
+            <Village3DView
+              isPlaying={gameState === 'PLAYING'}
+              isBowling={gameState === 'BOWLING'}
+              babushkaStates={babushkaStates}
+              inventory={inventory}
+              gazyavaBoostActive={gazyavaBoostTimer > 0}
+              activeEvent={districtEvent}
+              contractActive={contract.active}
+              speedBonusLevel={speedBonusLevel}
+              fakeLicenseOwned={hasFakeLicense}
+              lootMagnetOwned={hasLootMagnet}
+              goldenLauncherOwned={hasGoldenLauncher}
+              onInteractBabushka={handleInteractBabushka}
+              onInteractBakery={handleInteractBakery}
+              onEnterBowling={handleEnterBowling}
+              onExitBowling={handleExitBowling}
+              onEnterPetrovich={handleEnterPetrovich}
+              onEnterShop={handleEnterShop}
+              onDeliverDropoff={handleDeliverDropoff}
+              onCarRideReward={handleCarRideReward}
+              onDrivingHudUpdate={setDrivingHud}
+              onBowlingResult={handleBowlingResult}
+              onBowlingHudUpdate={setBowlingHud}
+              onConsumePirozhok={handleConsumePirozhok}
+              onCollectPickup={handleCollectPickup}
+              onPitbikerBump={handlePitbikerBump}
+              onStepTimer={handleStepTimer}
+              onTargetChange={setTargetPrompt}
+              onPitbikerAlert={handlePitbikerAlert}
+              virtualInputRef={virtualInputRef}
+              interactTriggerRef={interactTriggerRef}
+              throwTriggerRef={throwTriggerRef}
+              bowlLaunchRef={bowlLaunchRef}
+            />
+
+            {/* Active Driving HUD Card */}
+            {drivingHud.inCar && gameState === 'PLAYING' && (
+              <div className="pointer-events-none absolute top-3 left-3 z-20 bg-[#1B1F26]/95 border border-sky-500/60 rounded-xl px-4 py-2.5 shadow-xl space-y-1">
+                <div className="flex items-center gap-2 text-xs font-display font-bold text-sky-300">
+                  <Car className="w-4 h-4" />
+                  <span>{drivingHud.carName}</span>
+                  <span className="font-mono-tabular text-white ml-2">
+                    {drivingHud.speedKmh} км/ч
+                  </span>
+                </div>
+                <div className="text-[11px] text-stone-300">
+                  Пассажир:{' '}
+                  <strong className="text-amber-300">
+                    {drivingHud.passengerName || 'Свободно — подъедь к бабушке!'}
+                  </strong>
+                </div>
+              </div>
+            )}
+
+            {/* Petrovich Active Contract Banner */}
+            {contract.active && gameState === 'PLAYING' && (
+              <div className="pointer-events-none absolute top-14 left-3 z-20 bg-[#052E16]/95 border border-emerald-500/60 rounded-xl px-3.5 py-2 shadow-xl text-xs">
+                <span className="font-bold text-emerald-300">
+                  Заказ Петровича: {contract.delivered}/{contract.total} точек
+                </span>
+              </div>
+            )}
+
+            {/* Dynamic District Event Banner */}
+            {districtEvent !== 'NONE' && gameState === 'PLAYING' && (
+              <div className="pointer-events-none absolute top-3 right-3 z-20 max-w-xs bg-[#1B1F26]/95 border border-amber-500/70 rounded-xl px-3.5 py-2 shadow-xl">
+                <div className="flex items-center gap-1.5 text-xs font-display font-bold text-amber-300">
+                  <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  {EVENT_INFO[districtEvent].title}
+                </div>
+                <p className="text-[11px] text-stone-300 mt-0.5 leading-snug">
+                  {EVENT_INFO[districtEvent].desc}
+                </p>
+              </div>
+            )}
+
+            {/* Floating Event Toast */}
+            {toastMessage && (gameState === 'PLAYING' || gameState === 'BOWLING') && (
+              <div
+                className={`pointer-events-none absolute top-12 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-xs font-bold shadow-lg border whitespace-nowrap z-20 ${
+                  toastMessage.tone === 'emerald'
+                    ? 'bg-emerald-950/95 text-emerald-200 border-emerald-500/60'
+                    : toastMessage.tone === 'red'
+                    ? 'bg-red-950/95 text-red-200 border-red-500/60'
+                    : 'bg-[#1B1F26]/95 text-amber-200 border-amber-500/60'
+                }`}
+              >
+                {toastMessage.text}
+              </div>
+            )}
+
+            {/* Bowling Mode HUD Overlay */}
+            {gameState === 'BOWLING' && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2">
+                <div className="bg-[#1B1F26]/95 border border-sky-500/60 rounded-xl px-5 py-3 shadow-2xl flex items-center gap-6 text-xs">
+                  <div className="flex items-center gap-2">
+                    <Target className="w-4 h-4 text-sky-400" />
+                    <span className="font-display font-bold text-sm text-white">
+                      Бабушко-боулинг на лавочке
+                    </span>
+                  </div>
+                  <div className="text-stone-300">
+                    Сбито:{' '}
+                    <strong className="font-mono-tabular text-sky-300">
+                      {bowlingHud.pinsKnocked}/{bowlingHud.totalPins}
+                    </strong>
+                  </div>
+                  <div className="text-stone-300">
+                    Броски:{' '}
+                    <strong className="font-mono-tabular text-amber-300">
+                      {bowlingHud.throwsLeft}
+                    </strong>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExitBowling}
+                    className="px-3 py-1.5 rounded-lg bg-[#2A303C] hover:bg-[#3A4252] text-white font-semibold cursor-pointer whitespace-nowrap"
+                  >
+                    Встать с лавки (Esc)
+                  </button>
+                </div>
+
+                {bowlingHud.phase === 'AIMING' && (
+                  <button
+                    type="button"
+                    onClick={() => bowlLaunchRef.current?.()}
+                    className="px-5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-[#0F172A] font-display font-bold text-sm shadow-lg cursor-pointer whitespace-nowrap"
+                  >
+                    Запустить бабушку! (Space / Клик / E · Прицел: Мышка или A / D)
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Center [E] Interaction Prompt */}
+            {targetPrompt && gameState === 'PLAYING' && (
+              <div className="pointer-events-none absolute bottom-28 left-1/2 -translate-x-1/2 z-10">
+                <div
+                  className={`px-4 py-2 rounded-lg text-sm font-bold shadow-xl border whitespace-nowrap ${
+                    targetPrompt.canInteract
+                      ? 'bg-[#16191D]/95 text-[#FAF7F2] border-emerald-400'
+                      : 'bg-[#16191D]/90 text-stone-300 border-stone-500'
+                  }`}
+                >
+                  {targetPrompt.label}
+                </div>
+              </div>
+            )}
+
+            {/* Collapsible Unified Bottom Control Dock */}
+            {gameState !== 'BOWLING' && (
+              <div
+                className={`absolute bottom-3 left-1/2 -translate-x-1/2 z-20 transition-transform duration-200 ${
+                  dockCollapsed ? 'translate-y-[calc(100%-28px)]' : 'translate-y-0'
+                }`}
+                style={{ maxWidth: 'min(960px, 94vw)', width: '100%' }}
+              >
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setDockCollapsed((c) => !c)}
+                    className="inline-flex items-center gap-1 px-3 py-1 rounded-t-lg bg-[#1B1F26]/95 border border-b-0 border-[#2F3540] text-[11px] font-semibold text-stone-300 hover:text-white cursor-pointer"
+                  >
+                    {dockCollapsed ? (
+                      <>
+                        <ChevronUp className="w-3.5 h-3.5" /> Показать панель (H)
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-3.5 h-3.5" /> Скрыть панель (H)
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="bg-[#1B1F26]/95 border border-[#2F3540] rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shadow-2xl">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                    <span className="text-stone-400 font-semibold">На подносе:</span>
+                    {FILLING_ORDER.map((fId) => {
+                      const info = FILLINGS[fId];
+                      return (
+                        <span
+                          key={fId}
+                          className="inline-flex items-center gap-1.5 text-stone-200 whitespace-nowrap"
+                        >
+                          <span
+                            className="w-2.5 h-2.5 rounded-xs inline-block"
+                            style={{ backgroundColor: info.fillingColor }}
+                            aria-hidden="true"
+                          />
+                          <span>{info.shortLabel}:</span>
+                          <strong className="font-mono-tabular text-amber-300">
+                            {inventory[fId]}
+                          </strong>
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={(!hasGoldenLauncher && totalPirozhki <= 0) || drivingHud.inCar || gameState !== 'PLAYING'}
+                      onClick={() => throwTriggerRef.current?.()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-950 hover:bg-sky-900 border border-sky-700/60 text-xs font-semibold text-sky-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      <Send className="w-3.5 h-3.5 text-sky-400" />
+                      {hasGoldenLauncher ? '[Q / ПКМ] Бросить (∞)' : '[Q / ПКМ] Бросить (-1)'}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={gazyava <= 0 || gameState !== 'PLAYING'}
+                      onClick={handleUseGazyavaBoost}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950 hover:bg-emerald-900 border border-emerald-700/60 text-xs font-semibold text-emerald-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      <Flame className="w-3.5 h-3.5 text-emerald-400" />
+                      {gazyavaBoostTimer > 0
+                        ? `Турбо-бег: ${Math.ceil(gazyavaBoostTimer)}с`
+                        : '[1] Газява (-1)'}
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={kiriki <= 0 || gameState !== 'PLAYING'}
+                      onClick={handleUseKirikiBuff}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-950 hover:bg-amber-900 border border-amber-700/60 text-xs font-semibold text-amber-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      <Cookie className="w-3.5 h-3.5 text-amber-400" />
+                      {kirikiBuffTimer > 0
+                        ? `Бонус: ${Math.ceil(kirikiBuffTimer)}с`
+                        : '[2] Кирики (-1)'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Mobile Touch Controls */}
+            {gameState === 'PLAYING' && (
+              <div className="sm:hidden absolute bottom-20 left-3 right-3 z-20 flex items-center justify-between pointer-events-none">
+                <div className="pointer-events-auto grid grid-cols-3 gap-1 w-32 bg-[#1B1F26]/90 p-1.5 rounded-xl border border-[#2F3540]">
+                  <div />
+                  <button
+                    type="button"
+                    onPointerDown={() => setVirtualDir(0, -1)}
+                    onPointerUp={() => setVirtualDir(0, 0)}
+                    onPointerLeave={() => setVirtualDir(0, 0)}
+                    className="h-9 rounded-lg bg-[#252A34] active:bg-amber-500 active:text-black flex items-center justify-center"
+                    aria-label="Вперёд"
+                  >
+                    <ArrowUp className="w-4 h-4" />
+                  </button>
+                  <div />
+                  <button
+                    type="button"
+                    onPointerDown={() => setVirtualDir(-1, 0)}
+                    onPointerUp={() => setVirtualDir(0, 0)}
+                    onPointerLeave={() => setVirtualDir(0, 0)}
+                    className="h-9 rounded-lg bg-[#252A34] active:bg-amber-500 active:text-black flex items-center justify-center"
+                    aria-label="Влево"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onPointerDown={() => setVirtualDir(0, 1)}
+                    onPointerUp={() => setVirtualDir(0, 0)}
+                    onPointerLeave={() => setVirtualDir(0, 0)}
+                    className="h-9 rounded-lg bg-[#252A34] active:bg-amber-500 active:text-black flex items-center justify-center"
+                    aria-label="Назад"
+                  >
+                    <ArrowDown className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onPointerDown={() => setVirtualDir(1, 0)}
+                    onPointerUp={() => setVirtualDir(0, 0)}
+                    onPointerLeave={() => setVirtualDir(0, 0)}
+                    className="h-9 rounded-lg bg-[#252A34] active:bg-amber-500 active:text-black flex items-center justify-center"
+                    aria-label="Вправо"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="pointer-events-auto flex flex-col gap-2 items-end">
+                  <button
+                    type="button"
+                    onClick={() => throwTriggerRef.current?.()}
+                    className="h-10 px-3.5 rounded-xl bg-sky-600 active:bg-sky-500 text-white font-display font-bold text-xs shadow-lg whitespace-nowrap"
+                  >
+                    Бросить (Q)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => interactTriggerRef.current?.()}
+                    className="h-12 px-4 rounded-xl bg-emerald-600 active:bg-emerald-500 text-white font-display font-bold text-sm shadow-lg whitespace-nowrap"
+                  >
+                    Действие (E)
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* Interactive Lip-Brushing Minigame Modal */}
+      {gameState === 'MINIGAME' && activeBabushka && (
+        <LipBrushMinigame
+          babushka={activeBabushka}
+          craving={babushkaStates[activeBabushka.id]?.craving || 'cabbage'}
+          inventory={inventory}
+          kirikiBuffActive={kirikiBuffTimer > 0}
+          rollingPinOwned={hasRollingPin}
+          onComplete={handleMinigameComplete}
+          onCancel={handleMinigameCancel}
+        />
+      )}
+
+      {/* Underground Petrovich Office Modal */}
+      {gameState === 'PETROVICH' && (
+        <PetrovichModal
+          money={money}
+          stashes={stashes}
+          contract={contract}
+          hasShare={hasShare}
+          incomeMultiplier={globalIncomeMultiplier}
+          onSellStashes={handleSellStashes}
+          onStartContract={handleStartContract}
+          onQuickShiftWork={handleQuickShiftWork}
+          onClose={() => setGameState('PLAYING')}
+        />
+      )}
+
+      {/* District 24/7 Shop Modal */}
+      {gameState === 'SHOP' && (
+        <ShopModal
+          money={money}
+          gazyava={gazyava}
+          kiriki={kiriki}
+          ownedItems={ownedItems}
+          onBuyItem={handleBuyShopItem}
+          onClose={() => setGameState('PLAYING')}
+        />
+      )}
+
+      {/* Pause Modal */}
+      {gameState === 'PAUSED' && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-sm bg-[#FAF7F2] text-[#1E2229] rounded-2xl p-6 shadow-2xl border border-[#E2D9C8] text-center space-y-5">
+            <h2 className="font-display text-2xl font-bold">Пауза</h2>
+            <p className="text-sm text-[#574F45]">
+              Петрович, закладчики и питбайкер с Балтикой 0 поставлены на паузу.
+            </p>
+            <div className="flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={() => setGameState('PLAYING')}
+                className="w-full py-2.5 px-4 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-bold text-sm transition-colors cursor-pointer"
+              >
+                Продолжить
+              </button>
+              <button
+                type="button"
+                onClick={() => startGame(gameMode)}
+                className="w-full py-2.5 px-4 rounded-xl bg-[#EAE2D3] hover:bg-[#DDD3C1] text-[#1E2229] font-semibold text-sm transition-colors cursor-pointer"
+              >
+                Начать заново
+              </button>
+              <button
+                type="button"
+                onClick={() => setGameState('TITLE_MENU')}
+                className="w-full py-2 px-4 text-xs font-semibold text-[#645C52] hover:text-[#1E2229] transition-colors cursor-pointer"
+              >
+                В главное меню
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Game Over / Shift Summary Modal */}
+      {gameState === 'GAME_OVER' && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md bg-[#FAF7F2] text-[#1E2229] rounded-2xl p-6 sm:p-8 shadow-2xl border border-[#E2D9C8] text-center space-y-6">
+            <div>
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-[#8A5A19] mb-1">
+                <Flag className="w-3.5 h-3.5" />
+                Итоги смены на районе
+              </div>
+              <h2 className="font-display text-2xl sm:text-3xl font-extrabold">
+                Ой Володя, вот это улов!
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="bg-[#F2ECE1] rounded-xl p-3">
+                <div className="text-[11px] text-[#645C52] mb-1">Угощений</div>
+                <div className="font-mono-tabular text-xl font-bold text-[#1E2229]">
+                  {babushkasFed}
+                </div>
+              </div>
+              <div className="bg-[#ECFDF5] rounded-xl p-3 border border-emerald-200">
+                <div className="text-[11px] text-emerald-800 mb-1">Рубли</div>
+                <div className="font-mono-tabular text-xl font-bold text-emerald-700">
+                  {totalEarnedMoney} ₽
+                </div>
+              </div>
+              <div className="bg-[#ECFDF5] rounded-xl p-3 border border-emerald-200">
+                <div className="text-[11px] text-emerald-800 mb-1">Газява</div>
+                <div className="font-mono-tabular text-xl font-bold text-emerald-700">
+                  {totalEarnedGazyava}
+                </div>
+              </div>
+              <div className="bg-[#FFFBEB] rounded-xl p-3 border border-amber-200">
+                <div className="text-[11px] text-amber-800 mb-1">Кирики</div>
+                <div className="font-mono-tabular text-xl font-bold text-amber-700">
+                  {totalEarnedKiriki}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => startGame(gameMode)}
+                className="flex-1 inline-flex items-center justify-center gap-2 py-3 px-5 rounded-xl bg-[#D97706] hover:bg-[#B45309] text-white font-display font-bold text-sm transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Играть снова
+              </button>
+              <button
+                type="button"
+                onClick={() => setGameState('TITLE_MENU')}
+                className="py-3 px-5 rounded-xl bg-[#EAE2D3] hover:bg-[#DDD3C1] text-[#1E2229] font-semibold text-sm transition-colors cursor-pointer whitespace-nowrap"
+              >
+                Меню
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
