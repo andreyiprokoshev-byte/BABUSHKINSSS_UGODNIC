@@ -198,6 +198,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const [pointerLocked, setPointerLocked] = useState<boolean>(false);
+  const [webglUnavailable, setWebglUnavailable] = useState(false);
   const [contextLost, setContextLost] = useState<boolean>(false);
 
   const propsRef = useRef({
@@ -472,10 +473,16 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
       return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
     })();
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: !isSoftwareGl,
-      powerPreference: 'high-performance',
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: !isSoftwareGl,
+        powerPreference: 'high-performance',
+      });
+    } catch {
+      setWebglUnavailable(true);
+      return;
+    }
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0;
@@ -703,7 +710,7 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
         renderer.domElement.requestPointerLock
       ) {
         try {
-          renderer.domElement.requestPointerLock();
+          renderer.domElement.requestPointerLock()?.catch(() => {});
         } catch {
           // Drag look fallback
         }
@@ -1925,15 +1932,22 @@ export const Village3DView: React.FC<Village3DViewProps> = ({
     <div className="relative w-full h-full min-h-[420px] rounded-xl overflow-hidden border border-[#2F3540] bg-[#1E293B] select-none">
       <div ref={mountRef} className="w-full h-full" />
 
-      {isPlaying && !isBowling && !contextLost && (
+      {isPlaying && !isBowling && !webglUnavailable && !contextLost && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="w-2 h-2 rounded-full border-2 border-white/90 bg-black/40" />
         </div>
       )}
 
-      {isPlaying && !isBowling && !pointerLocked && !contextLost && (
+      {isPlaying && !isBowling && !pointerLocked && !webglUnavailable && !contextLost && (
         <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-md bg-[#16191D]/85 text-xs font-medium text-stone-200 whitespace-nowrap border border-white/10">
           Клик — обзор · WASD бег/руль · E действие/угон · Q/ПКМ бросок
+        </div>
+      )}
+
+      {webglUnavailable && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center" role="alert">
+          <p className="font-display text-lg font-bold">Не удалось запустить 3D</p>
+          <p className="text-sm text-stone-300">Для игры нужен WebGL 2. Проверьте графический драйвер и системный WebView.</p>
         </div>
       )}
 
