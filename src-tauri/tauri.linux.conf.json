@@ -1,0 +1,6 @@
+{
+  "productName": "Pirozhkovy Dvor 3D",
+  "bundle": {
+    "linux": { "deb": { "depends": ["libc6 (>= 2.39)"] } }
+  }
+}

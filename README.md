@@ -19,11 +19,11 @@
 3. Скачайте артефакт **`windows-exe-installer`** — внутри лежит установщик `*-setup.exe` и готовый `pirozhkovy-dvor.exe`.
 
 ### Вариант 2: Запустить и собрать `.exe` локально
-Нужны **Node.js 22+**, **Rust (rustup + MSVC Build Tools)** и **WebView2** (в Windows 10/11 уже есть).
+Нужны **Node.js 24 и Bun 1.4.5**, **Rust (rustup + MSVC Build Tools)** и **WebView2** (в Windows 10/11 уже есть).
 
 ```bash
 # 1. Установить зависимости
-npm install
+bun install --frozen-lockfile
 
 # 2. Быстрая разработка в браузере (горячая перезагрузка, удобно верстать)
 npm run dev
